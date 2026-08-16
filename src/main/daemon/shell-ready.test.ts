@@ -793,22 +793,25 @@ describePosix('daemon shell-ready launch config', () => {
   })
 
   itWithBash(
-    'trims a trailing PROMPT_COMMAND separator before appending the epilogue',
+    'normalizes PROMPT_COMMAND suffixes without swallowing escaped characters',
     async () => {
       const { getDaemonBashShellReadyRcfileContent } = await importFreshShellReady()
-      const rcfileContent = [
-        "PROMPT_COMMAND='__user_hook; '",
-        getDaemonBashShellReadyRcfileContent(),
-        'printf \'FINAL_PROMPT_COMMAND=%s\\n\' "$PROMPT_COMMAND"'
-      ].join('\n')
+      for (const [promptCommand, hookOutput] of [
+        ['printf "TRAILING_SEPARATOR\\n"; ', 'TRAILING_SEPARATOR'],
+        [String.raw`printf "ESCAPED_SEMICOLON:%s:END\n" foo\;`, 'ESCAPED_SEMICOLON:foo;:END'],
+        [String.raw`printf "ESCAPED_SPACE:<%s>:END\n" foo\ `, 'ESCAPED_SPACE:<foo >:END']
+      ] as const) {
+        const output = runInteractiveBashRcfile(
+          [
+            `PROMPT_COMMAND='${promptCommand}'`,
+            getDaemonBashShellReadyRcfileContent(),
+            String.raw`__orca_osc133_epilogue() { printf "EPILOGUE_RAN\n"; }`
+          ].join('\n'),
+          userDataPath
+        )
 
-      const output = runInteractiveBashRcfile(rcfileContent, userDataPath)
-
-      expect(output).not.toContain('syntax error')
-      expect(output).toContain(
-        'FINAL_PROMPT_COMMAND=__orca_osc133_precmd;__user_hook;__orca_osc133_epilogue'
-      )
-      expect(output).not.toContain(';;')
+        expect([hookOutput, 'EPILOGUE_RAN'].every((value) => output.includes(value))).toBe(true)
+      }
     }
   )
 

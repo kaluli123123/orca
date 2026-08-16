@@ -138,6 +138,9 @@ describe('buildBranchNamePrompt', () => {
     })
 
     expect(prompt).toContain('Fix CI config')
-    expect(prompt).not.toContain('<hook_result')
+    expect(prompt).toContain('User request:\nFix CI config')
+    expect(prompt).not.toContain('hook_result')
+    expect(prompt).not.toContain('UserPromptSubmit')
+    expect(prompt).not.toContain('{}')
   })
 })

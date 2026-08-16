@@ -185,7 +185,7 @@ __orca_osc133_epilogue() {
 # Why: normalize an array PROMPT_COMMAND (bash 5.1+) to a string so prepend/append
 # below is uniform, and capture $? in precmd before the user's chain mutates it.
 __orca_normalize_prompt_command() {
-  local __orca_joined="" __orca_prompt_part
+  local __orca_joined="" __orca_prompt_part __orca_prefix __orca_trailing_backslashes
   if [[ "$(declare -p PROMPT_COMMAND 2>/dev/null)" == "declare -a"* ]]; then
     for __orca_prompt_part in "\${PROMPT_COMMAND[@]}"; do
       [[ -n "$__orca_prompt_part" ]] || continue
@@ -197,9 +197,12 @@ __orca_normalize_prompt_command() {
     done
     PROMPT_COMMAND="$__orca_joined"
   fi
-  # Why: inherited hooks can end with a separator; trim it before Orca appends its epilogue.
+  # Why: trim only unescaped separators; escaped suffixes belong to the user's command.
   while [[ "\${PROMPT_COMMAND:-}" == *[[:space:]\\;] ]]; do
-    PROMPT_COMMAND="\${PROMPT_COMMAND%?}"
+    __orca_prefix="\${PROMPT_COMMAND%?}"
+    __orca_trailing_backslashes="\${__orca_prefix##*[!\\\\]}"
+    (( \${#__orca_trailing_backslashes} % 2 == 0 )) || break
+    PROMPT_COMMAND="$__orca_prefix"
   done
 }
 __orca_normalize_prompt_command
