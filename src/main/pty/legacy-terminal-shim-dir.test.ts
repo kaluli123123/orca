@@ -724,7 +724,9 @@ describe('legacy terminal shim neutralization', () => {
       throw error
     }
     neutralizeLegacyTerminalShimDir(userData)
-    const closed = waitForChildClose(child, 2_000)
+    // Why: full-suite PTY/process contention can delay Bash shutdown even after the
+    // command has produced its result; keep this above the normal process-startup tail.
+    const closed = waitForChildClose(child, 10_000)
     child.stdin.end("printf 'stdin payload\\n' | git commit -m 'subject with spaces'; exit $?\n")
 
     try {
