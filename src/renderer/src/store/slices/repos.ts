@@ -111,6 +111,7 @@ import {
   FolderWorkspaceUpdateCoordinator,
   type FolderWorkspaceUpdateTicket
 } from './folder-workspace-update-coordinator'
+import { findIndexedProjectGroupOwner } from '@/lib/worktree-runtime-owner-index'
 
 const ERROR_TOAST_DURATION = 60_000
 const SAFE_AUTO_FORK_SYNC_COOLDOWN_MS = 10 * 60 * 1000
@@ -478,6 +479,20 @@ function projectGroupWithFetchedOwner(
     return { ...projectGroup, executionHostId: toSshExecutionHostId(projectGroup.connectionId) }
   }
   return { ...projectGroup, executionHostId: LOCAL_EXECUTION_HOST_ID }
+}
+
+function getProjectGroupRuntimeTarget(
+  state: Pick<AppState, 'projectGroups' | 'settings'>,
+  groupId: string
+): ReturnType<typeof getActiveRuntimeTarget> {
+  const owner = findIndexedProjectGroupOwner(state.projectGroups, groupId)
+  if (!owner) {
+    return getActiveRuntimeTarget(state.settings)
+  }
+  const ownerHost = parseExecutionHostId(owner.executionHostId)
+  return ownerHost?.kind === 'runtime'
+    ? { kind: 'environment', environmentId: ownerHost.environmentId }
+    : { kind: 'local' }
 }
 
 function setupWithFetchedOwner(
@@ -2992,8 +3007,7 @@ export const createRepoSlice: StateCreator<AppState, [], [], RepoSlice> = (set, 
 
   updateProjectGroup: async (groupId, updates) => {
     try {
-      // Why: project groups are focused-host-scoped by design; all CRUD routes by the focused host and the list is replaced, not merged.
-      const target = getActiveRuntimeTarget(get().settings)
+      const target = getProjectGroupRuntimeTarget(get(), groupId)
       const updated =
         target.kind === 'local'
           ? await window.api.projectGroups.update({ groupId, updates })
@@ -3022,8 +3036,7 @@ export const createRepoSlice: StateCreator<AppState, [], [], RepoSlice> = (set, 
 
   deleteProjectGroup: async (groupId) => {
     try {
-      // Why: project groups are focused-host-scoped by design (see updateProjectGroup).
-      const target = getActiveRuntimeTarget(get().settings)
+      const target = getProjectGroupRuntimeTarget(get(), groupId)
       const deleted =
         target.kind === 'local'
           ? await window.api.projectGroups.delete({ groupId })
@@ -3130,7 +3143,9 @@ export const createRepoSlice: StateCreator<AppState, [], [], RepoSlice> = (set, 
       if (!findRepoForHost(get().repos, projectId, { settings: get().settings })) {
         return false
       }
-      const target = getActiveRuntimeTarget(settingsForRepoOwner(get(), projectId))
+      const target = groupId
+        ? getProjectGroupRuntimeTarget(get(), groupId)
+        : getActiveRuntimeTarget(settingsForRepoOwner(get(), projectId))
       const moved =
         target.kind === 'local'
           ? await window.api.projectGroups.moveProject({
