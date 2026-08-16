@@ -8,7 +8,7 @@ import { getDaemonBashShellReadyRcfileContent } from './daemon-bash-shell-ready-
 const hasBash = process.platform !== 'win32' && spawnSync('bash', ['--version']).status === 0
 const itWithBash = hasBash ? it : it.skip
 
-function runInteractiveBashRcfile(rcfileContent: string): string {
+function runInteractiveBashRcfile(rcfileContent: string, input = 'true\nfalse\nexit 0\n'): string {
   const tempHome = mkdtempSync(join(tmpdir(), 'daemon-bash-rcfile-test-'))
   const rcfile = join(tempHome, 'rcfile')
   writeFileSync(rcfile, rcfileContent)
@@ -18,7 +18,7 @@ function runInteractiveBashRcfile(rcfileContent: string): string {
       'bash',
       ['-lc', 'bash --noprofile --rcfile "$1" -i 2>&1', 'bash', rcfile],
       {
-        input: 'true\nfalse\nexit 0\n',
+        input,
         encoding: 'utf8',
         env: { ...process.env, HOME: tempHome, ORCA_SHELL_READY_MARKER: '1', TERM: 'xterm' },
         timeout: 5000
@@ -52,16 +52,19 @@ describe('daemon Bash shell-ready rcfile', () => {
     }
   })
 
-  itWithBash('collapses an array PROMPT_COMMAND to a scalar', () => {
+  itWithBash('collapses an array PROMPT_COMMAND and preserves member execution order', () => {
     const output = runInteractiveBashRcfile(
       [
         `PROMPT_COMMAND=('printf "ARRAY_FIRST\\n"' 'printf "ARRAY_SECOND\\n"')`,
         getDaemonBashShellReadyRcfileContent(),
-        'declare -p PROMPT_COMMAND'
-      ].join('\n')
+        `[[ "$(declare -p PROMPT_COMMAND)" == "declare --"* ]] && printf "PROMPT_COMMAND_SCALAR\\n"`
+      ].join('\n'),
+      'exit 0\n'
     )
 
-    expect(output).toContain('declare -- PROMPT_COMMAND=')
-    expect(output).not.toContain('declare -a PROMPT_COMMAND=')
+    expect(output.match(/ARRAY_FIRST/g)).toHaveLength(1)
+    expect(output.match(/ARRAY_SECOND/g)).toHaveLength(1)
+    expect(output.indexOf('ARRAY_FIRST')).toBeLessThan(output.indexOf('ARRAY_SECOND'))
+    expect(output).toContain('PROMPT_COMMAND_SCALAR')
   })
 })
