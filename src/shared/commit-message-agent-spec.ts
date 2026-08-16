@@ -583,7 +583,6 @@ export const COMMIT_MESSAGE_AGENT_SPECS: Partial<Record<TuiAgent, CommitMessageA
     buildArgs: ({ prompt, model, thinkingLevel }) => [
       '--prompt',
       prompt,
-      '--quiet',
       ...(model && model !== 'default' ? ['--model', model] : []),
       ...(thinkingLevel === 'on'
         ? ['--thinking']

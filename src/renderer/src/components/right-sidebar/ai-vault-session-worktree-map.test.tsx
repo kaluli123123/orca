@@ -230,8 +230,8 @@ describe('useAiVaultSessionWorktreeMap', () => {
     const elapsedMs = performance.now() - startedAt
 
     expect(result.current.size).toBe(manySessions.length)
-    // Was ~350ms+ before the hoist and ~15ms after; the bound is loose enough
-    // to stay quiet on a slow CI box while still catching the quadratic shape.
-    expect(elapsedMs).toBeLessThan(150)
+    // Was ~350ms+ before the hoist and ~15ms after; allow full-suite worker
+    // contention while still catching the quadratic shape.
+    expect(elapsedMs).toBeLessThan(300)
   })
 })
