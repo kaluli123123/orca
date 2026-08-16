@@ -792,6 +792,26 @@ describePosix('daemon shell-ready launch config', () => {
     expectBashOsc133Lifecycle(output)
   })
 
+  itWithBash(
+    'trims a trailing PROMPT_COMMAND separator before appending the epilogue',
+    async () => {
+      const { getDaemonBashShellReadyRcfileContent } = await importFreshShellReady()
+      const rcfileContent = [
+        "PROMPT_COMMAND='__user_hook; '",
+        getDaemonBashShellReadyRcfileContent(),
+        'printf \'FINAL_PROMPT_COMMAND=%s\\n\' "$PROMPT_COMMAND"'
+      ].join('\n')
+
+      const output = runInteractiveBashRcfile(rcfileContent, userDataPath)
+
+      expect(output).not.toContain('syntax error')
+      expect(output).toContain(
+        'FINAL_PROMPT_COMMAND=__orca_osc133_precmd;__user_hook;__orca_osc133_epilogue'
+      )
+      expect(output).not.toContain(';;')
+    }
+  )
+
   it('preserves a real inherited ZDOTDIR as ORCA_ORIG_ZDOTDIR', async () => {
     // Why: only the wrapper self-loop should be rejected; a real user ZDOTDIR must round-trip so their configs load.
     const previousZdotdir = process.env.ZDOTDIR

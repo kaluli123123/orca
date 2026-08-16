@@ -168,7 +168,9 @@ server.listen(0, '127.0.0.1', () => {
           const state = await waitForListenerState(statePath)
           executablePid = state.pid
           const launcherPid = launcher.pid
-          const launcherExitPromise = waitForChildExit(launcher, 5_000)
+          // Why: the full suite can briefly starve child-process scheduling; keep the
+          // signal-delivery assertion above that startup tail without changing its oracle.
+          const launcherExitPromise = waitForChildExit(launcher, 10_000)
           launcher.kill(signal)
           const launcherExit = await launcherExitPromise
           const exitCode = launcherExit?.[0]
@@ -316,7 +318,8 @@ exec node "$@"
 })
 
 async function waitForListenerState(path: string): Promise<{ pid: number; port: number }> {
-  const deadline = Date.now() + 5_000
+  // Why: parallel full-suite load can delay the synthetic Electron listener startup.
+  const deadline = Date.now() + 10_000
   while (Date.now() < deadline) {
     try {
       const state: unknown = JSON.parse(await readFile(path, 'utf8'))

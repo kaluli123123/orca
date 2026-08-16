@@ -197,6 +197,10 @@ __orca_normalize_prompt_command() {
     done
     PROMPT_COMMAND="$__orca_joined"
   fi
+  # Why: inherited hooks can end with a separator; trim it before Orca appends its epilogue.
+  while [[ "\${PROMPT_COMMAND:-}" == *[[:space:]\\;] ]]; do
+    PROMPT_COMMAND="\${PROMPT_COMMAND%?}"
+  done
 }
 __orca_normalize_prompt_command
 PROMPT_COMMAND="__orca_osc133_precmd\${PROMPT_COMMAND:+;\${PROMPT_COMMAND}};__orca_osc133_epilogue"
