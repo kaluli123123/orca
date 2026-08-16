@@ -10,7 +10,7 @@
 // `<user_query>` envelope is a genuine user turn, and misclassifying it would
 // hide the turn (drop it from transcripts, demote its session title, or leave
 // the agent visibly done after an interrupt).
-const LEADING_TAG_NAME = /^<([a-z][a-z0-9-]*)(?:[\s>]|$)/
+const LEADING_TAG_NAME = /^<([a-z][a-z0-9_-]*)(?:[\s>]|$)/
 
 // Consumers must only treat tags we have observed from harnesses as machinery;
 // arbitrary kebab tags can be genuine user code.
@@ -24,6 +24,7 @@ const KNOWN_HARNESS_TAG_NAMES = new Set([
   'command-name',
   'cross-session-message',
   'fork-boilerplate',
+  'hook_result',
   'local-command-caveat',
   'local-command-stderr',
   'local-command-stdout',
@@ -67,6 +68,23 @@ export function isKnownHarnessInjectedUserTurnText(text: string): boolean {
     return true
   }
   return HARNESS_INJECTED_TURN_PREFIXES.some((prefix) => normalized.startsWith(prefix))
+}
+
+/** Remove leading known harness XML wrappers while preserving the real prompt after them. */
+export function stripKnownHarnessEnvelope(text: string): string {
+  let remaining = text.trim()
+  while (remaining) {
+    const tagName = LEADING_TAG_NAME.exec(remaining)?.[1]
+    if (!tagName || !KNOWN_HARNESS_TAG_NAMES.has(tagName)) {
+      break
+    }
+    const closeTag = new RegExp(`</${tagName}>`, 'i').exec(remaining)
+    if (!closeTag || closeTag.index === undefined) {
+      return ''
+    }
+    remaining = remaining.slice(closeTag.index + closeTag[0].length).trim()
+  }
+  return remaining
 }
 
 /** True only for the observed post-compaction continuation prompt. */
