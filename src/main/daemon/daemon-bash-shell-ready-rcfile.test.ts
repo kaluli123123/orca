@@ -36,6 +36,7 @@ describe('daemon Bash shell-ready rcfile', () => {
   itWithBash('normalizes suffixes without swallowing escaped characters', () => {
     for (const [promptCommand, hookOutput] of [
       ['printf "TRAILING_SEPARATOR\\n"; ', 'TRAILING_SEPARATOR'],
+      ['printf "DOUBLE_SEPARATOR\\n";;', 'DOUBLE_SEPARATOR'],
       [String.raw`printf "ESCAPED_SEMICOLON:%s:END\n" foo\;`, 'ESCAPED_SEMICOLON:foo;:END'],
       [String.raw`printf "ESCAPED_SPACE:<%s>:END\n" foo\ `, 'ESCAPED_SPACE:<foo >:END']
     ] as const) {
@@ -49,5 +50,18 @@ describe('daemon Bash shell-ready rcfile', () => {
 
       expect([hookOutput, 'EPILOGUE_RAN'].every((value) => output.includes(value))).toBe(true)
     }
+  })
+
+  itWithBash('collapses an array PROMPT_COMMAND to a scalar', () => {
+    const output = runInteractiveBashRcfile(
+      [
+        `PROMPT_COMMAND=('printf "ARRAY_FIRST\\n"' 'printf "ARRAY_SECOND\\n"')`,
+        getDaemonBashShellReadyRcfileContent(),
+        'declare -p PROMPT_COMMAND'
+      ].join('\n')
+    )
+
+    expect(output).toContain('declare -- PROMPT_COMMAND=')
+    expect(output).not.toContain('declare -a PROMPT_COMMAND=')
   })
 })
