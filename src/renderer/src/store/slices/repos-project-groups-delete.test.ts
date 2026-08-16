@@ -32,6 +32,7 @@ const projectGroup: ProjectGroup = {
 
 const reposRemove = vi.fn()
 const projectGroupsDelete = vi.fn()
+const projectGroupsUpdate = vi.fn()
 const runtimeEnvironmentCall = vi.fn()
 const runtimeEnvironmentTransportCall = vi.fn()
 
@@ -40,6 +41,7 @@ beforeEach(() => {
   reposRemove.mockReset()
   reposRemove.mockResolvedValue(undefined)
   projectGroupsDelete.mockReset()
+  projectGroupsUpdate.mockReset()
   runtimeEnvironmentCall.mockReset()
   runtimeEnvironmentTransportCall.mockReset()
   runtimeEnvironmentTransportCall.mockImplementation((args: RuntimeEnvironmentCallRequest) => {
@@ -48,7 +50,7 @@ beforeEach(() => {
   vi.stubGlobal('window', {
     api: {
       repos: { remove: reposRemove },
-      projectGroups: { delete: projectGroupsDelete },
+      projectGroups: { delete: projectGroupsDelete, update: projectGroupsUpdate },
       runtimeEnvironments: { call: runtimeEnvironmentTransportCall }
     }
   })
@@ -113,16 +115,17 @@ describe('project group deletion store routing', () => {
       _meta: { runtimeId: 'runtime-remote' }
     })
     const groupedRepo = { ...remoteRepo, projectGroupId: projectGroup.id }
+    const remotelyOwnedGroup = { ...projectGroup, executionHostId: 'runtime:env-1' }
     const store = createTestStore()
     store.setState({
       settings: { activeRuntimeEnvironmentId: 'env-1' } as never,
-      projectGroups: [projectGroup],
+      projectGroups: [remotelyOwnedGroup],
       repos: [groupedRepo]
     })
 
     await expect(store.getState().deleteProjectGroup(projectGroup.id)).resolves.toBe(false)
 
-    expect(store.getState().projectGroups).toEqual([projectGroup])
+    expect(store.getState().projectGroups).toEqual([remotelyOwnedGroup])
     expect(store.getState().repos).toEqual([groupedRepo])
     expect(runtimeEnvironmentCall).toHaveBeenCalledWith({
       selector: 'env-1',
@@ -131,6 +134,42 @@ describe('project group deletion store routing', () => {
       timeoutMs: 15_000
     })
     expect(projectGroupsDelete).not.toHaveBeenCalled()
+  })
+
+  it('routes a locally owned group to the local runtime when a remote runtime is active', async () => {
+    projectGroupsDelete.mockResolvedValue(true)
+    const locallyOwnedGroup = { ...projectGroup, executionHostId: 'local' }
+    const store = createTestStore()
+    store.setState({
+      settings: { activeRuntimeEnvironmentId: 'env-1' } as never,
+      projectGroups: [locallyOwnedGroup]
+    })
+
+    await expect(store.getState().deleteProjectGroup(locallyOwnedGroup.id)).resolves.toBe(true)
+
+    expect(projectGroupsDelete).toHaveBeenCalledWith({ groupId: locallyOwnedGroup.id })
+    expect(runtimeEnvironmentCall).not.toHaveBeenCalled()
+  })
+
+  it('routes renames to the group owner instead of the active runtime', async () => {
+    const locallyOwnedGroup = { ...projectGroup, executionHostId: 'local' }
+    const renamedGroup = { ...locallyOwnedGroup, name: 'Renamed' }
+    projectGroupsUpdate.mockResolvedValue(renamedGroup)
+    const store = createTestStore()
+    store.setState({
+      settings: { activeRuntimeEnvironmentId: 'env-1' } as never,
+      projectGroups: [locallyOwnedGroup]
+    })
+
+    await expect(
+      store.getState().updateProjectGroup(locallyOwnedGroup.id, { name: renamedGroup.name })
+    ).resolves.toBe(true)
+
+    expect(projectGroupsUpdate).toHaveBeenCalledWith({
+      groupId: locallyOwnedGroup.id,
+      updates: { name: renamedGroup.name }
+    })
+    expect(runtimeEnvironmentCall).not.toHaveBeenCalled()
   })
 
   it('deletes only the group when contained project removal is not requested', async () => {
