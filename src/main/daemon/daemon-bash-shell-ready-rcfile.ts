@@ -107,6 +107,7 @@ __orca_normalize_prompt_command() {
         __orca_joined="$__orca_prompt_part"
       fi
     done
+    unset PROMPT_COMMAND
     PROMPT_COMMAND="$__orca_joined"
   fi
   # Why: trim only unescaped separators; escaped suffixes belong to the user's command.
