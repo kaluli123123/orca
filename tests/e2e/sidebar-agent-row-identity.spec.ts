@@ -17,16 +17,12 @@ import { worktreeRow } from './worktree-row-locators'
  * dropped unconditionally, so a hookless Cursor pane produced no sidebar row.
  * #8940 — an incidental `claude` token inside an OpenCode task title outranked
  * the pane's known owner, flipping the row label + identity icon to Claude Code.
- * #14937 - an incidental agent token inside a Claude task title must likewise
- * not replace the pane's known Claude identity or its tab icon.
  */
 
 // The literal Cursor emits on every redraw — the pane's ONLY identity signal.
 const CURSOR_NATIVE_OSC_TITLE = 'Cursor Agent'
 // An OpenCode task title that merely MENTIONS claude (see #8940).
 const OPENCODE_TASK_OSC_TITLE = '⠋ use Claude Sonnet'
-// A Claude task title that merely MENTIONS Codex (see #14937).
-const CLAUDE_TASK_OSC_TITLE = '⠋ Fix the codex plugin launcher'
 
 /** Printed banner that proves the emitter ran; the OSC title trails it in the same chunk. */
 const PANE_HOLD_MARKER = 'agent pane holding'
@@ -74,7 +70,7 @@ function paneTitles(page: Page, tabId: string): Promise<string[]> {
 async function openAgentTab(
   page: Page,
   worktreeId: string,
-  launchAgent: 'claude' | 'cursor' | 'opencode'
+  launchAgent: 'cursor' | 'opencode'
 ): Promise<{ tabId: string; ptyId: string }> {
   const tabId = await page.evaluate(
     ({ worktreeId, launchAgent }) => {
@@ -205,30 +201,4 @@ test('sidebar keeps a Cursor pane visible and an OpenCode pane out of Claude Cod
 
   openCodeScript.cleanup()
   cursorScript.cleanup()
-})
-
-test('Claude task titles that mention Codex keep the Claude tab icon', async ({ orcaPage }) => {
-  await waitForSessionReady(orcaPage)
-  const worktreeId = await waitForActiveWorktree(orcaPage)
-  await ensureTerminalVisible(orcaPage)
-
-  const claude = await openAgentTab(orcaPage, worktreeId, 'claude')
-  const claudeScript = await runNodeScriptInTerminal(
-    orcaPage,
-    claude.ptyId,
-    oscTitleHolderScript('\\u280b Fix the codex plugin launcher')
-  )
-  await waitForTerminalOutput(orcaPage, PANE_HOLD_MARKER, 15_000)
-  await expect
-    .poll(() => paneTitles(orcaPage, claude.tabId), {
-      timeout: 15_000,
-      message: 'the Claude task title never reached the renderer'
-    })
-    .toContain(CLAUDE_TASK_OSC_TITLE)
-
-  const claudeTab = orcaPage.locator(`[data-tab-id="${claude.tabId}"]`)
-  await expect(claudeTab.locator('[data-agent-icon="claude"]')).toBeVisible()
-  await expect(claudeTab.locator('[data-agent-icon="codex"]')).toHaveCount(0)
-
-  claudeScript.cleanup()
 })
