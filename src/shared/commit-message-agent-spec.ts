@@ -495,7 +495,6 @@ export const COMMIT_MESSAGE_AGENT_SPECS: Partial<Record<TuiAgent, CommitMessageA
       '--print',
       '--no-session',
       '--no-tools',
-      '--no-extensions',
       '--no-skills',
       '--no-context-files',
       '--mode',
