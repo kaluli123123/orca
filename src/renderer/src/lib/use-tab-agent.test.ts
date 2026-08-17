@@ -307,6 +307,43 @@ describe('resolveTabAgentFromSignals', () => {
     ).toBe('claude')
   })
 
+  it('keeps a Claude-owned pane Claude when its task title mentions another agent', () => {
+    for (const title of [
+      '⠋ Fix the codex plugin launcher',
+      '⠙ add grok support to the tab bar',
+      '⠹ port the gemini status parser'
+    ]) {
+      for (const signals of [
+        { hasObservedAgentSignal: true, isRemote: false },
+        {
+          hasObservedAgentSignal: true,
+          isRemote: false,
+          focusedCompletedHookAgent: 'claude' as const
+        },
+        { hasObservedAgentSignal: true, isRemote: true }
+      ]) {
+        expect(
+          resolveTabAgentFromSignals({
+            ...signals,
+            title,
+            hookAgent: null,
+            launchAgent: 'claude'
+          })
+        ).toBe('claude')
+      }
+    }
+
+    expect(
+      resolveTabAgentFromSignals({
+        hasObservedAgentSignal: true,
+        isRemote: false,
+        title: '⠋ Codex: fix cursor offsets',
+        hookAgent: null,
+        launchAgent: 'claude'
+      })
+    ).toBe('codex')
+  })
+
   it('does not let an explicit title override launch identity before any activity is observed', () => {
     expect(
       resolveTabAgentFromSignals({
