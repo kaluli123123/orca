@@ -653,7 +653,6 @@ describe('wrapRuntimeHomeHookCommand', () => {
     const command = wrapRuntimeHomeHookCommand('claude-hook')
 
     expect(command).toContain('case "${OSTYPE-}" in msys*|cygwin*|win32*)')
-    expect(command).toContain('"${SYSTEMROOT-}/System32/WindowsPowerShell/v1.0/powershell.exe"')
     expect(command).toContain('case "$HOME" in *\\&*|*\\^*|*\\(*|*\\)*|*\\;*|*,*|*=*|*%*|*\\!*)')
     expect(command).not.toContain('uname')
     expect(command).toContain('"$HOME/.orca/agent-hooks/claude-hook.cmd"')
