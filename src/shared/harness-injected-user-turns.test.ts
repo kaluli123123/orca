@@ -2,7 +2,8 @@ import { describe, expect, it } from 'vitest'
 
 import {
   isCompactContinuationUserTurnText,
-  isKnownHarnessInjectedUserTurnText
+  isKnownHarnessInjectedUserTurnText,
+  stripKnownHarnessEnvelope
 } from './harness-injected-user-turns'
 
 describe('isKnownHarnessInjectedUserTurnText', () => {
@@ -120,5 +121,11 @@ describe('isKnownHarnessInjectedUserTurnText', () => {
     expect(
       isKnownHarnessInjectedUserTurnText('<channel>general</channel> explain this feed element')
     ).toBe(false)
+  })
+})
+
+describe('stripKnownHarnessEnvelope', () => {
+  it('drops an incomplete known wrapper when no trusted user-prompt boundary exists', () => {
+    expect(stripKnownHarnessEnvelope('<hook_result>injected hook metadata')).toBe('')
   })
 })
