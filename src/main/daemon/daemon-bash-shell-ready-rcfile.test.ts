@@ -8,15 +8,25 @@ import { getDaemonBashShellReadyRcfileContent } from './daemon-bash-shell-ready-
 const hasBash = process.platform !== 'win32' && spawnSync('bash', ['--version']).status === 0
 const itWithBash = hasBash ? it : it.skip
 
-function runInteractiveBashRcfile(rcfileContent: string, input = 'true\nfalse\nexit 0\n'): string {
+// Why: the rcfile sources /etc/profile then $HOME/.bash_profile itself, so a
+// fixture PROMPT_COMMAND set via .bash_profile — not textually before the
+// rcfile — is the last write before Orca's normalization runs, regardless of
+// what a host /etc/profile sets. The outer wrapper stays non-login (-c) so
+// .bash_profile is sourced only once, by the rcfile's own chain.
+function runInteractiveBashRcfile(
+  bashProfileContent: string,
+  rcfileSuffix: string,
+  input = 'true\nfalse\nexit 0\n'
+): string {
   const tempHome = mkdtempSync(join(tmpdir(), 'daemon-bash-rcfile-test-'))
   const rcfile = join(tempHome, 'rcfile')
-  writeFileSync(rcfile, rcfileContent)
+  writeFileSync(join(tempHome, '.bash_profile'), bashProfileContent)
+  writeFileSync(rcfile, [getDaemonBashShellReadyRcfileContent(), rcfileSuffix].join('\n'))
 
   try {
     const result = spawnSync(
       'bash',
-      ['-lc', 'bash --noprofile --rcfile "$1" -i 2>&1', 'bash', rcfile],
+      ['-c', 'bash --noprofile --rcfile "$1" -i 2>&1', 'bash', rcfile],
       {
         input,
         encoding: 'utf8',
@@ -41,11 +51,8 @@ describe('daemon Bash shell-ready rcfile', () => {
       [String.raw`printf "ESCAPED_SPACE:<%s>:END\n" foo\ `, 'ESCAPED_SPACE:<foo >:END']
     ] as const) {
       const output = runInteractiveBashRcfile(
-        [
-          `PROMPT_COMMAND='${promptCommand}'`,
-          getDaemonBashShellReadyRcfileContent(),
-          String.raw`__orca_osc133_epilogue() { printf "EPILOGUE_RAN\n"; }`
-        ].join('\n')
+        `PROMPT_COMMAND='${promptCommand}'`,
+        String.raw`__orca_osc133_epilogue() { printf "EPILOGUE_RAN\n"; }`
       )
 
       expect([hookOutput, 'EPILOGUE_RAN'].every((value) => output.includes(value))).toBe(true)
@@ -54,11 +61,8 @@ describe('daemon Bash shell-ready rcfile', () => {
 
   itWithBash('collapses an array PROMPT_COMMAND and preserves member execution order', () => {
     const output = runInteractiveBashRcfile(
-      [
-        `PROMPT_COMMAND=('printf "ARRAY_FIRST\\n"' 'printf "ARRAY_SECOND\\n"')`,
-        getDaemonBashShellReadyRcfileContent(),
-        `[[ "$(declare -p PROMPT_COMMAND)" == "declare --"* ]] && printf "PROMPT_COMMAND_SCALAR\\n"`
-      ].join('\n'),
+      `PROMPT_COMMAND=('printf "ARRAY_FIRST\\n"' 'printf "ARRAY_SECOND\\n"')`,
+      `[[ "$(declare -p PROMPT_COMMAND)" == "declare --"* ]] && printf "PROMPT_COMMAND_SCALAR\\n"`,
       'exit 0\n'
     )
 
