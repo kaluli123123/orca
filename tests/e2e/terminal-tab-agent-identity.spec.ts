@@ -15,11 +15,7 @@ const CLAUDE_IDENTITY_MARKER = 'claude identity seeded'
 const CLAUDE_TASK_OSC_TITLE = '⠋ Fix the codex plugin launcher'
 const PANE_HOLD_MARKER = 'claude pane holding'
 
-// Why: emits a real Claude-identity title first, and only replaces it with the
-// Codex-mentioning task title once the test signals over stdin. Without that
-// prior identity evidence, titlePresentsAgent's discrimination between "names
-// Codex" and "merely mentions Codex" is never exercised (#14937) — the
-// reclaim guard stays closed regardless, and the test would pass either way.
+// Seed Claude identity before the Codex mention so the test evaluates title re-ownership.
 function oscTitleHolderScript(): string {
   return [
     `const readline = require('node:readline')`,
