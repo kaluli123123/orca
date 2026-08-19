@@ -111,7 +111,10 @@ import {
   FolderWorkspaceUpdateCoordinator,
   type FolderWorkspaceUpdateTicket
 } from './folder-workspace-update-coordinator'
-import { findIndexedProjectGroupOwner } from '@/lib/worktree-runtime-owner-index'
+import {
+  findIndexedProjectGroupOwner,
+  isProjectGroupIdAmbiguous
+} from '@/lib/worktree-runtime-owner-index'
 
 const ERROR_TOAST_DURATION = 60_000
 const SAFE_AUTO_FORK_SYNC_COOLDOWN_MS = 10 * 60 * 1000
@@ -219,6 +222,7 @@ export type FolderWorkspacePathStatusCacheEntry = {
 
 export type DeleteProjectGroupWithContainedProjectsOptions = {
   removeContainedProjects: boolean
+  executionHostId?: ExecutionHostId
 }
 
 type AllHostCatalogFetchOptions = {
@@ -483,10 +487,16 @@ function projectGroupWithFetchedOwner(
 
 function getProjectGroupRuntimeTarget(
   state: Pick<AppState, 'projectGroups' | 'settings'>,
-  groupId: string
-): ReturnType<typeof getActiveRuntimeTarget> {
-  const owner = findIndexedProjectGroupOwner(state.projectGroups, groupId)
+  groupId: string,
+  executionHostId?: ExecutionHostId
+): ReturnType<typeof getActiveRuntimeTarget> | null {
+  const owner = findIndexedProjectGroupOwner(state.projectGroups, groupId, executionHostId)
   if (!owner) {
+    // Why: a duplicate groupId across catalogs must not silently mutate whichever
+    // runtime happens to be focused — abort instead of guessing the host.
+    if (!executionHostId && isProjectGroupIdAmbiguous(state.projectGroups, groupId)) {
+      return null
+    }
     return getActiveRuntimeTarget(state.settings)
   }
   const ownerHost = parseExecutionHostId(owner.executionHostId)
@@ -1900,9 +1910,13 @@ export type RepoSlice = {
   deleteFolderWorkspace: (folderWorkspaceId: string) => Promise<boolean>
   updateProjectGroup: (
     groupId: string,
-    updates: Partial<Pick<ProjectGroup, 'name' | 'isCollapsed' | 'tabOrder' | 'color'>>
+    updates: Partial<Pick<ProjectGroup, 'name' | 'isCollapsed' | 'tabOrder' | 'color'>>,
+    options?: { executionHostId?: ExecutionHostId }
   ) => Promise<boolean>
-  deleteProjectGroup: (groupId: string) => Promise<boolean>
+  deleteProjectGroup: (
+    groupId: string,
+    options?: { executionHostId?: ExecutionHostId }
+  ) => Promise<boolean>
   deleteProjectGroupWithContainedProjects: (
     groupId: string,
     options: DeleteProjectGroupWithContainedProjectsOptions
@@ -1910,7 +1924,8 @@ export type RepoSlice = {
   moveProjectToGroup: (
     projectId: string,
     groupId: string | null,
-    order?: number
+    order?: number,
+    options?: { executionHostId?: ExecutionHostId }
   ) => Promise<boolean>
   // options.hostId disambiguates which host's row to remove when the id exists on multiple hosts; else the focused host is assumed.
   // options.errorFeedback defaults to 'silent' so bulk/background callers keep their own aggregate reporting.
@@ -3005,9 +3020,12 @@ export const createRepoSlice: StateCreator<AppState, [], [], RepoSlice> = (set, 
     }
   },
 
-  updateProjectGroup: async (groupId, updates) => {
+  updateProjectGroup: async (groupId, updates, options) => {
     try {
-      const target = getProjectGroupRuntimeTarget(get(), groupId)
+      const target = getProjectGroupRuntimeTarget(get(), groupId, options?.executionHostId)
+      if (!target) {
+        return false
+      }
       const updated =
         target.kind === 'local'
           ? await window.api.projectGroups.update({ groupId, updates })
@@ -3034,9 +3052,12 @@ export const createRepoSlice: StateCreator<AppState, [], [], RepoSlice> = (set, 
     }
   },
 
-  deleteProjectGroup: async (groupId) => {
+  deleteProjectGroup: async (groupId, options) => {
     try {
-      const target = getProjectGroupRuntimeTarget(get(), groupId)
+      const target = getProjectGroupRuntimeTarget(get(), groupId, options?.executionHostId)
+      if (!target) {
+        return false
+      }
       const deleted =
         target.kind === 'local'
           ? await window.api.projectGroups.delete({ groupId })
@@ -3086,7 +3107,9 @@ export const createRepoSlice: StateCreator<AppState, [], [], RepoSlice> = (set, 
       }
     }
 
-    const deleted = await get().deleteProjectGroup(groupId)
+    const deleted = await get().deleteProjectGroup(groupId, {
+      executionHostId: options.executionHostId
+    })
     if (!deleted) {
       return {
         status: 'group-delete-failed',
@@ -3138,14 +3161,17 @@ export const createRepoSlice: StateCreator<AppState, [], [], RepoSlice> = (set, 
     }
   },
 
-  moveProjectToGroup: async (projectId, groupId, order) => {
+  moveProjectToGroup: async (projectId, groupId, order, options) => {
     try {
       if (!findRepoForHost(get().repos, projectId, { settings: get().settings })) {
         return false
       }
       const target = groupId
-        ? getProjectGroupRuntimeTarget(get(), groupId)
+        ? getProjectGroupRuntimeTarget(get(), groupId, options?.executionHostId)
         : getActiveRuntimeTarget(settingsForRepoOwner(get(), projectId))
+      if (!target) {
+        return false
+      }
       const moved =
         target.kind === 'local'
           ? await window.api.projectGroups.moveProject({

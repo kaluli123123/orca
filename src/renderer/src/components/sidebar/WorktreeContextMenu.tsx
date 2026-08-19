@@ -35,6 +35,7 @@ import type { AppState } from '@/store/types'
 import { useAllWorktrees, useRepoById, useRepoMap, useWorktreeMap } from '@/store/selectors'
 import { cn } from '@/lib/utils'
 import type { Repo } from '../../../../shared/repo-types'
+import { parseExecutionHostId } from '../../../../shared/execution-host'
 import type {
   WorkspaceStatus,
   WorkspaceStatusDefinition,
@@ -579,7 +580,8 @@ const WorktreeContextMenu = React.memo(function WorktreeContextMenu({
       }
       const group = await createProjectGroup(name)
       if (group) {
-        await moveProjectToGroup(repo.id, group.id)
+        const executionHostId = parseExecutionHostId(group.executionHostId)?.id ?? undefined
+        await moveProjectToGroup(repo.id, group.id, undefined, { executionHostId })
       }
     },
     [createProjectGroup, moveProjectToGroup, repo]
@@ -590,9 +592,12 @@ const WorktreeContextMenu = React.memo(function WorktreeContextMenu({
       if (!repo || repo.projectGroupId === groupId) {
         return
       }
-      void moveProjectToGroup(repo.id, groupId)
+      const executionHostId =
+        parseExecutionHostId(projectGroups.find((group) => group.id === groupId)?.executionHostId)
+          ?.id ?? undefined
+      void moveProjectToGroup(repo.id, groupId, undefined, { executionHostId })
     },
-    [moveProjectToGroup, repo]
+    [moveProjectToGroup, projectGroups, repo]
   )
 
   const handleRemoveProjectFromGroup = useCallback(() => {

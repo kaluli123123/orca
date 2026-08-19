@@ -5,6 +5,7 @@ import type { ProjectGroup } from '../../../../../../shared/project-group-types'
 import type { ProjectOrderBy } from '../../../../../../shared/ui-chrome-types'
 import type { Repo } from '../../../../../../shared/repo-types'
 import type { ExecutionHostId } from '../../../../../../shared/execution-host'
+import { parseExecutionHostId } from '../../../../../../shared/execution-host'
 import type { HostHeaderRow, HostSectionRow } from '../../host-section-rows'
 import type { Row, WorktreeGroupBy } from '../grouping/row-types'
 import type { RenderRow } from '../listing/render-row'
@@ -147,9 +148,13 @@ export function useWorktreeSidebarHeaderDrag(args: {
   )
   const commitProjectGroupOrder = useCallback(
     (repoId: string, projectGroupId: string | null, order: number) => {
-      void moveProjectToGroup(repoId, projectGroupId, order)
+      const executionHostId = projectGroupId
+        ? (parseExecutionHostId(projectGroupByIdForHeaderDrag.get(projectGroupId)?.executionHostId)
+            ?.id ?? undefined)
+        : undefined
+      void moveProjectToGroup(repoId, projectGroupId, order, { executionHostId })
     },
-    [moveProjectToGroup]
+    [moveProjectToGroup, projectGroupByIdForHeaderDrag]
   )
   const commitProjectGroupHeaderOrder = useCallback(
     (groupId: string, tabOrder: number) => {
@@ -157,9 +162,12 @@ export function useWorktreeSidebarHeaderDrag(args: {
         return
       }
       suppressScrollCorrectionForHeaderCommit()
-      void updateProjectGroup(groupId, { tabOrder })
+      const executionHostId =
+        parseExecutionHostId(projectGroupByIdForHeaderDrag.get(groupId)?.executionHostId)?.id ??
+        undefined
+      void updateProjectGroup(groupId, { tabOrder }, { executionHostId })
     },
-    [suppressScrollCorrectionForHeaderCommit, updateProjectGroup]
+    [projectGroupByIdForHeaderDrag, suppressScrollCorrectionForHeaderCommit, updateProjectGroup]
   )
   // Drag applies only in manual order; still construct the controller inert for stable hook order.
   const repoDrag = useRepoHeaderDrag({
