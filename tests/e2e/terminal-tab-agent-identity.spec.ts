@@ -2,6 +2,7 @@ import type { Page } from '@stablyai/playwright-test'
 import { test, expect } from './helpers/orca-app'
 import { ensureTerminalVisible, waitForActiveWorktree, waitForSessionReady } from './helpers/store'
 import {
+  sendToTerminal,
   waitForActivePanePtyId,
   waitForActiveTerminalManager,
   waitForTerminalOutput
@@ -9,12 +10,24 @@ import {
 import { runNodeScriptInTerminal } from './helpers/run-node-script-in-terminal'
 import { waitForRestoredTerminalInputReady } from './helpers/restored-terminal-input-readiness'
 
+const CLAUDE_IDENTITY_OSC_TITLE = '✳ Claude Code'
+const CLAUDE_IDENTITY_MARKER = 'claude identity seeded'
 const CLAUDE_TASK_OSC_TITLE = '⠋ Fix the codex plugin launcher'
 const PANE_HOLD_MARKER = 'claude pane holding'
 
+// Why: emits a real Claude-identity title first, and only replaces it with the
+// Codex-mentioning task title once the test signals over stdin. Without that
+// prior identity evidence, titlePresentsAgent's discrimination between "names
+// Codex" and "merely mentions Codex" is never exercised (#14937) — the
+// reclaim guard stays closed regardless, and the test would pass either way.
 function oscTitleHolderScript(): string {
   return [
-    `process.stdout.write('${PANE_HOLD_MARKER}\\r\\n\\u001b]0;\\u280b Fix the codex plugin launcher\\u0007')`,
+    `const readline = require('node:readline')`,
+    `process.stdout.write('\\u001b]0;\\u2733 Claude Code\\u0007')`,
+    `process.stdout.write('${CLAUDE_IDENTITY_MARKER}\\r\\n')`,
+    `readline.createInterface({ input: process.stdin }).once('line', () => {`,
+    `  process.stdout.write('${PANE_HOLD_MARKER}\\r\\n\\u001b]0;\\u280b Fix the codex plugin launcher\\u0007')`,
+    `})`,
     'setInterval(() => {}, 1e9)',
     ''
   ].join('\n')
@@ -55,6 +68,16 @@ test('Claude task titles that mention Codex keep the Claude tab icon', async ({ 
 
   const claude = await openClaudeTab(orcaPage, worktreeId)
   const claudeScript = await runNodeScriptInTerminal(orcaPage, claude.ptyId, oscTitleHolderScript())
+
+  await waitForTerminalOutput(orcaPage, CLAUDE_IDENTITY_MARKER, 15_000)
+  await expect
+    .poll(() => paneTitles(orcaPage, claude.tabId), {
+      timeout: 15_000,
+      message: 'the Claude identity title never reached the renderer'
+    })
+    .toContain(CLAUDE_IDENTITY_OSC_TITLE)
+
+  await sendToTerminal(orcaPage, claude.ptyId, '\r')
   await waitForTerminalOutput(orcaPage, PANE_HOLD_MARKER, 15_000)
   await expect
     .poll(() => paneTitles(orcaPage, claude.tabId), {
