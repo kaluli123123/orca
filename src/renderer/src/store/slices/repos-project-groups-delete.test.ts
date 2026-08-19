@@ -160,6 +160,43 @@ describe('project group deletion store routing', () => {
     expect(runtimeEnvironmentCall).not.toHaveBeenCalled()
   })
 
+  it('removes an unstamped workspace by resolving its host through the deleted parent group', async () => {
+    runtimeEnvironmentCall.mockResolvedValue({
+      id: 'rpc-delete-group',
+      ok: true,
+      result: { deleted: true },
+      _meta: { runtimeId: 'runtime-remote' }
+    })
+    const remotelyOwnedGroup = { ...projectGroup, executionHostId: 'runtime:env-1' }
+    // Why: no executionHostId/connectionId of its own — catalogOwnerHostId alone
+    // would default this to local and leave it dangling after the delete.
+    const unstampedWorkspace: FolderWorkspace = {
+      id: 'unstamped-workspace',
+      projectGroupId: remotelyOwnedGroup.id,
+      name: 'Remote workspace',
+      folderPath: '/workspace/remote',
+      linkedTask: null,
+      comment: '',
+      isArchived: false,
+      isUnread: false,
+      isPinned: false,
+      sortOrder: 1,
+      lastActivityAt: 0,
+      createdAt: 1,
+      updatedAt: 1
+    }
+    const store = createTestStore()
+    store.setState({
+      settings: { activeRuntimeEnvironmentId: 'env-1' } as never,
+      projectGroups: [remotelyOwnedGroup],
+      folderWorkspaces: [unstampedWorkspace]
+    })
+
+    await expect(store.getState().deleteProjectGroup(remotelyOwnedGroup.id)).resolves.toBe(true)
+
+    expect(store.getState().folderWorkspaces).toEqual([])
+  })
+
   it('routes renames to the group owner instead of the active runtime', async () => {
     const locallyOwnedGroup = { ...projectGroup, executionHostId: 'local' }
     const renamedGroup = { ...locallyOwnedGroup, name: 'Renamed' }
