@@ -130,6 +130,7 @@ describe('stripKnownHarnessEnvelope', () => {
   })
 
   it('strips a mixed-case tag the classifier also matches case-insensitively', () => {
+    expect(isKnownHarnessInjectedUserTurnText('<HOOK_RESULT>injected hook metadata')).toBe(true)
     expect(
       stripKnownHarnessEnvelope(
         '<HOOK_RESULT hook_event="UserPromptSubmit">{}</HOOK_RESULT>\nFix CI config'
