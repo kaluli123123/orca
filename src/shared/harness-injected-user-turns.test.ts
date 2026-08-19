@@ -128,4 +128,12 @@ describe('stripKnownHarnessEnvelope', () => {
   it('drops an incomplete known wrapper when no trusted user-prompt boundary exists', () => {
     expect(stripKnownHarnessEnvelope('<hook_result>injected hook metadata')).toBe('')
   })
+
+  it('strips a mixed-case tag the classifier also matches case-insensitively', () => {
+    expect(
+      stripKnownHarnessEnvelope(
+        '<HOOK_RESULT hook_event="UserPromptSubmit">{}</HOOK_RESULT>\nFix CI config'
+      )
+    ).toBe('Fix CI config')
+  })
 })

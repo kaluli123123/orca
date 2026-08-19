@@ -172,6 +172,43 @@ describe('project group deletion store routing', () => {
     expect(runtimeEnvironmentCall).not.toHaveBeenCalled()
   })
 
+  it('aborts a mutation instead of guessing the host when the group id is ambiguous', async () => {
+    const localGroup = { ...projectGroup, executionHostId: 'local' }
+    const remoteGroup = { ...projectGroup, executionHostId: 'runtime:env-1' }
+    const store = createTestStore()
+    store.setState({
+      settings: { activeRuntimeEnvironmentId: 'env-1' } as never,
+      projectGroups: [localGroup, remoteGroup]
+    })
+
+    await expect(store.getState().deleteProjectGroup(projectGroup.id)).resolves.toBe(false)
+    await expect(
+      store.getState().updateProjectGroup(projectGroup.id, { name: 'Renamed' })
+    ).resolves.toBe(false)
+
+    expect(projectGroupsDelete).not.toHaveBeenCalled()
+    expect(projectGroupsUpdate).not.toHaveBeenCalled()
+    expect(runtimeEnvironmentCall).not.toHaveBeenCalled()
+  })
+
+  it('disambiguates a mutation on a duplicate group id with an explicit executionHostId', async () => {
+    projectGroupsDelete.mockResolvedValue(true)
+    const localGroup = { ...projectGroup, executionHostId: 'local' }
+    const remoteGroup = { ...projectGroup, executionHostId: 'runtime:env-1' }
+    const store = createTestStore()
+    store.setState({
+      settings: { activeRuntimeEnvironmentId: 'env-1' } as never,
+      projectGroups: [localGroup, remoteGroup]
+    })
+
+    await expect(
+      store.getState().deleteProjectGroup(projectGroup.id, { executionHostId: 'local' })
+    ).resolves.toBe(true)
+
+    expect(projectGroupsDelete).toHaveBeenCalledWith({ groupId: projectGroup.id })
+    expect(runtimeEnvironmentCall).not.toHaveBeenCalled()
+  })
+
   it('deletes only the group when contained project removal is not requested', async () => {
     projectGroupsDelete.mockResolvedValue(true)
     const groupedRepo = { ...remoteRepo, id: 'direct', projectGroupId: projectGroup.id }
