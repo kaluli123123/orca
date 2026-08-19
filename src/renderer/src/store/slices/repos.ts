@@ -3104,10 +3104,17 @@ export const createRepoSlice: StateCreator<AppState, [], [], RepoSlice> = (set, 
           entry: { connectionId?: string | null; executionHostId?: string | null },
           id: string | null | undefined
         ): boolean => !!id && deletedGroupIds.has(id) && catalogOwnerHostId(entry) === ownerHostId
+        // Why: an unstamped workspace's own fields default to local via
+        // catalogOwnerHostId — resolve through its parent group instead so a
+        // remote group's workspace isn't misread as local and swept up here.
+        const isFolderWorkspaceDeletedOnThisHost = (workspace: FolderWorkspace): boolean =>
+          !!workspace.projectGroupId &&
+          deletedGroupIds.has(workspace.projectGroupId) &&
+          getFolderWorkspaceHostId(workspace, s.projectGroups) === ownerHostId
         return {
           projectGroups: s.projectGroups.filter((group) => !isDeletedOnThisHost(group, group.id)),
           folderWorkspaces: s.folderWorkspaces.filter(
-            (workspace) => !isDeletedOnThisHost(workspace, workspace.projectGroupId)
+            (workspace) => !isFolderWorkspaceDeletedOnThisHost(workspace)
           ),
           repos: s.repos.map((repo) =>
             isDeletedOnThisHost(repo, repo.projectGroupId)
