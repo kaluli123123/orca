@@ -17,10 +17,21 @@ test.describe('default browser cookie clearing', () => {
     await expect(cookiesSection).toBeVisible({ timeout: 10_000 })
 
     const clearButton = cookiesSection.locator('button').last()
+    // Why: wait for the localized completion toast, not a hardcoded locale-specific string.
+    const toasts = orcaPage.locator('[data-sonner-toast]')
+
     await expect(clearButton).toBeEnabled()
     await clearButton.click()
-    // Why: wait for the localized completion toast, not a hardcoded locale-specific string.
-    await expect(orcaPage.locator('[data-sonner-toast]')).toBeVisible({ timeout: 10_000 })
+    await expect(toasts).toHaveCount(1, { timeout: 10_000 })
+    await expect(clearButton).toBeEnabled()
+
+    // Why: the regression left the button disabled after a successful clear
+    // (#14678) — a single click can't catch that, so clear again.
+    const toastCountBeforeSecondClick = await toasts.count()
+    await clearButton.click()
+    await expect
+      .poll(() => toasts.count(), { timeout: 10_000 })
+      .toBeGreaterThan(toastCountBeforeSecondClick)
     await expect(clearButton).toBeEnabled()
   })
 })
