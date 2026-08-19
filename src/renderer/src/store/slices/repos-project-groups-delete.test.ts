@@ -378,6 +378,42 @@ describe('project group deletion store routing', () => {
     expect(store.getState().repos).toEqual([remoteDupRepo])
   })
 
+  it('selects the owner-host repo for contained removal even when the sibling host row comes first', async () => {
+    projectGroupsDelete.mockResolvedValue(true)
+    const remoteDupRepo: Repo = {
+      ...remoteRepo,
+      id: 'dup-repo',
+      executionHostId: 'runtime:env-1',
+      projectGroupId: null
+    }
+    const localDupRepo: Repo = {
+      ...remoteRepo,
+      id: 'dup-repo',
+      executionHostId: 'local',
+      projectGroupId: projectGroup.id
+    }
+    const store = createTestStore()
+    store.setState({
+      projectGroups: [projectGroup],
+      // Why: the sibling-host row is listed before the owner-host row on purpose.
+      repos: [remoteDupRepo, localDupRepo]
+    })
+
+    await expect(
+      store.getState().deleteProjectGroupWithContainedProjects(projectGroup.id, {
+        removeContainedProjects: true
+      })
+    ).resolves.toEqual({
+      status: 'deleted-group',
+      groupId: projectGroup.id,
+      requestedProjectIds: ['dup-repo'],
+      removedProjectIds: ['dup-repo'],
+      failedProjectRemovals: []
+    })
+
+    expect(reposRemoveForHost).toHaveBeenCalledWith({ repoId: 'dup-repo', hostId: 'local' })
+  })
+
   it('does not remove contained projects when group deletion fails', async () => {
     projectGroupsDelete.mockResolvedValue(false)
     const groupedRepo = { ...remoteRepo, id: 'direct', projectGroupId: projectGroup.id }
