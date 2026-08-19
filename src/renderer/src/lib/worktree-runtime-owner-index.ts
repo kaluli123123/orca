@@ -54,7 +54,7 @@ type IndexedProjectGroupOwnerResolution =
   | { kind: 'missing' }
   | { kind: 'ambiguous' }
 
-function catalogOwnerHostId(owner: {
+export function catalogOwnerHostId(owner: {
   connectionId?: string | null
   executionHostId?: string | null
 }): ExecutionHostId {

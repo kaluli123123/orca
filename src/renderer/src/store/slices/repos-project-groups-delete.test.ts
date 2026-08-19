@@ -209,6 +209,60 @@ describe('project group deletion store routing', () => {
     expect(runtimeEnvironmentCall).not.toHaveBeenCalled()
   })
 
+  it('scopes delete state reconciliation to the disambiguated host, leaving the sibling host untouched', async () => {
+    projectGroupsDelete.mockResolvedValue(true)
+    const localGroup = { ...projectGroup, executionHostId: 'local' }
+    const remoteGroup = { ...projectGroup, executionHostId: 'runtime:env-1' }
+    const localRepo = {
+      ...remoteRepo,
+      id: 'local-repo',
+      executionHostId: 'local',
+      projectGroupId: projectGroup.id
+    }
+    const remoteGroupedRepo = {
+      ...remoteRepo,
+      id: 'remote-grouped-repo',
+      executionHostId: 'runtime:env-1',
+      projectGroupId: projectGroup.id
+    }
+    const store = createTestStore()
+    store.setState({
+      settings: { activeRuntimeEnvironmentId: 'env-1' } as never,
+      projectGroups: [localGroup, remoteGroup],
+      repos: [localRepo, remoteGroupedRepo]
+    })
+
+    await expect(
+      store.getState().deleteProjectGroup(projectGroup.id, { executionHostId: 'local' })
+    ).resolves.toBe(true)
+
+    expect(store.getState().projectGroups).toEqual([remoteGroup])
+    expect(store.getState().repos).toEqual([
+      { ...localRepo, projectGroupId: null },
+      remoteGroupedRepo
+    ])
+  })
+
+  it('scopes update state reconciliation to the disambiguated host, leaving the sibling host untouched', async () => {
+    const localGroup = { ...projectGroup, executionHostId: 'local' }
+    const remoteGroup = { ...projectGroup, executionHostId: 'runtime:env-1' }
+    const renamedLocalGroup = { ...localGroup, name: 'Renamed' }
+    projectGroupsUpdate.mockResolvedValue(renamedLocalGroup)
+    const store = createTestStore()
+    store.setState({
+      settings: { activeRuntimeEnvironmentId: 'env-1' } as never,
+      projectGroups: [localGroup, remoteGroup]
+    })
+
+    await expect(
+      store
+        .getState()
+        .updateProjectGroup(projectGroup.id, { name: 'Renamed' }, { executionHostId: 'local' })
+    ).resolves.toBe(true)
+
+    expect(store.getState().projectGroups).toEqual([renamedLocalGroup, remoteGroup])
+  })
+
   it('deletes only the group when contained project removal is not requested', async () => {
     projectGroupsDelete.mockResolvedValue(true)
     const groupedRepo = { ...remoteRepo, id: 'direct', projectGroupId: projectGroup.id }
