@@ -510,8 +510,10 @@ function getProjectGroupRuntimeTarget(
     }
   }
   // Why: a duplicate groupId across catalogs must not silently mutate whichever
-  // runtime happens to be focused — abort instead of guessing the host.
-  if (!executionHostId && isProjectGroupIdAmbiguous(state.projectGroups, groupId)) {
+  // runtime happens to be focused — abort instead of guessing the host. An
+  // explicit executionHostId that doesn't own this group is stale, not "no
+  // preference," so it must also abort rather than fall back to the active runtime.
+  if (executionHostId || isProjectGroupIdAmbiguous(state.projectGroups, groupId)) {
     return null
   }
   const target = getActiveRuntimeTarget(state.settings)
@@ -3176,7 +3178,9 @@ export const createRepoSlice: StateCreator<AppState, [], [], RepoSlice> = (set, 
     const removedProjectIds: string[] = []
     const failedProjectRemovals: ProjectRemovalFailure[] = []
     for (const projectId of scopedProjectIds) {
-      const existedBeforeRemoval = get().repos.some((repo) => repo.id === projectId)
+      const existsOnOwnerHost = (repo: Repo): boolean =>
+        repo.id === projectId && catalogOwnerHostId(repo) === ownerHostId
+      const existedBeforeRemoval = get().repos.some(existsOnOwnerHost)
       try {
         if (existedBeforeRemoval) {
           await get().removeProject(projectId, { hostId: ownerHostId })
@@ -3184,7 +3188,7 @@ export const createRepoSlice: StateCreator<AppState, [], [], RepoSlice> = (set, 
       } catch (err) {
         console.error('Failed to remove contained project:', err)
       }
-      const stillExists = get().repos.some((repo) => repo.id === projectId)
+      const stillExists = get().repos.some(existsOnOwnerHost)
       if (stillExists) {
         failedProjectRemovals.push({
           projectId,

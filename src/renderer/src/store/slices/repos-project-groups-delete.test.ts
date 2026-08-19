@@ -31,6 +31,7 @@ const projectGroup: ProjectGroup = {
 }
 
 const reposRemove = vi.fn()
+const reposRemoveForHost = vi.fn()
 const projectGroupsDelete = vi.fn()
 const projectGroupsUpdate = vi.fn()
 const runtimeEnvironmentCall = vi.fn()
@@ -40,6 +41,8 @@ beforeEach(() => {
   clearRuntimeCompatibilityCacheForTests()
   reposRemove.mockReset()
   reposRemove.mockResolvedValue(undefined)
+  reposRemoveForHost.mockReset()
+  reposRemoveForHost.mockResolvedValue(undefined)
   projectGroupsDelete.mockReset()
   projectGroupsUpdate.mockReset()
   runtimeEnvironmentCall.mockReset()
@@ -49,7 +52,7 @@ beforeEach(() => {
   })
   vi.stubGlobal('window', {
     api: {
-      repos: { remove: reposRemove },
+      repos: { remove: reposRemove, removeForHost: reposRemoveForHost },
       projectGroups: { delete: projectGroupsDelete, update: projectGroupsUpdate },
       runtimeEnvironments: { call: runtimeEnvironmentTransportCall }
     }
@@ -191,6 +194,22 @@ describe('project group deletion store routing', () => {
     expect(runtimeEnvironmentCall).not.toHaveBeenCalled()
   })
 
+  it('aborts instead of falling back to the active runtime when an explicit executionHostId owns nothing', async () => {
+    const remoteGroup = { ...projectGroup, executionHostId: 'runtime:env-1' }
+    const store = createTestStore()
+    store.setState({
+      settings: { activeRuntimeEnvironmentId: 'env-1' } as never,
+      projectGroups: [remoteGroup]
+    })
+
+    await expect(
+      store.getState().deleteProjectGroup(projectGroup.id, { executionHostId: 'local' })
+    ).resolves.toBe(false)
+
+    expect(projectGroupsDelete).not.toHaveBeenCalled()
+    expect(runtimeEnvironmentCall).not.toHaveBeenCalled()
+  })
+
   it('disambiguates a mutation on a duplicate group id with an explicit executionHostId', async () => {
     projectGroupsDelete.mockResolvedValue(true)
     const localGroup = { ...projectGroup, executionHostId: 'local' }
@@ -213,13 +232,13 @@ describe('project group deletion store routing', () => {
     projectGroupsDelete.mockResolvedValue(true)
     const localGroup = { ...projectGroup, executionHostId: 'local' }
     const remoteGroup = { ...projectGroup, executionHostId: 'runtime:env-1' }
-    const localRepo = {
+    const localRepo: Repo = {
       ...remoteRepo,
       id: 'local-repo',
       executionHostId: 'local',
       projectGroupId: projectGroup.id
     }
-    const remoteGroupedRepo = {
+    const remoteGroupedRepo: Repo = {
       ...remoteRepo,
       id: 'remote-grouped-repo',
       executionHostId: 'runtime:env-1',
@@ -321,6 +340,42 @@ describe('project group deletion store routing', () => {
     expect(reposRemove).toHaveBeenCalledWith({ repoId: 'direct' })
     expect(reposRemove).toHaveBeenCalledWith({ repoId: 'nested' })
     expect(store.getState().repos).toEqual([siblingRepo])
+  })
+
+  it('reports a contained-project removal as successful even when a same-id repo survives on another host', async () => {
+    projectGroupsDelete.mockResolvedValue(true)
+    const localDupRepo: Repo = {
+      ...remoteRepo,
+      id: 'dup-repo',
+      executionHostId: 'local',
+      projectGroupId: projectGroup.id
+    }
+    const remoteDupRepo: Repo = {
+      ...remoteRepo,
+      id: 'dup-repo',
+      executionHostId: 'runtime:env-1',
+      projectGroupId: null
+    }
+    const store = createTestStore()
+    store.setState({
+      projectGroups: [projectGroup],
+      repos: [localDupRepo, remoteDupRepo]
+    })
+
+    await expect(
+      store.getState().deleteProjectGroupWithContainedProjects(projectGroup.id, {
+        removeContainedProjects: true
+      })
+    ).resolves.toEqual({
+      status: 'deleted-group',
+      groupId: projectGroup.id,
+      requestedProjectIds: ['dup-repo'],
+      removedProjectIds: ['dup-repo'],
+      failedProjectRemovals: []
+    })
+
+    expect(reposRemoveForHost).toHaveBeenCalledWith({ repoId: 'dup-repo', hostId: 'local' })
+    expect(store.getState().repos).toEqual([remoteDupRepo])
   })
 
   it('does not remove contained projects when group deletion fails', async () => {
