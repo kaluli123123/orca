@@ -19,9 +19,7 @@ test.describe('default browser cookie clearing', () => {
     const clearButton = cookiesSection.locator('button').last()
     await expect(clearButton).toBeEnabled()
     await clearButton.click()
-    // Why: the success toast text is localized (BrowserProfileRow only calls
-    // toast.success on this path, never toast.error), so waiting for any toast
-    // proves the async clear settled without asserting a locale-specific string.
+    // Why: wait for the localized completion toast, not a hardcoded locale-specific string.
     await expect(orcaPage.locator('[data-sonner-toast]')).toBeVisible({ timeout: 10_000 })
     await expect(clearButton).toBeEnabled()
   })
