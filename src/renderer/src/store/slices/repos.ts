@@ -3148,10 +3148,11 @@ export const createRepoSlice: StateCreator<AppState, [], [], RepoSlice> = (set, 
     }
     const { ownerHostId } = resolved
     // Why: a duplicate id on the sibling host must not have its contained projects removed too.
-    const scopedProjectIds = targets.projectIds.filter((projectId) => {
-      const repo = get().repos.find((candidate) => candidate.id === projectId)
-      return !!repo && catalogOwnerHostId(repo) === ownerHostId
-    })
+    const scopedProjectIds = targets.projectIds.filter((projectId) =>
+      get().repos.some(
+        (candidate) => candidate.id === projectId && catalogOwnerHostId(candidate) === ownerHostId
+      )
+    )
     const requestedProjectIds = options.removeContainedProjects ? scopedProjectIds : []
 
     const deleted = await get().deleteProjectGroup(groupId, { executionHostId: ownerHostId })
