@@ -8,11 +8,8 @@ import { getDaemonBashShellReadyRcfileContent } from './daemon-bash-shell-ready-
 const hasBash = process.platform !== 'win32' && spawnSync('bash', ['--version']).status === 0
 const itWithBash = hasBash ? it : it.skip
 
-// Why: the rcfile sources /etc/profile then $HOME/.bash_profile itself, so a
-// fixture PROMPT_COMMAND set via .bash_profile — not textually before the
-// rcfile — is the last write before Orca's normalization runs, regardless of
-// what a host /etc/profile sets. The outer wrapper stays non-login (-c) so
-// .bash_profile is sourced only once, by the rcfile's own chain.
+// Set PROMPT_COMMAND in .bash_profile because the rcfile sources it after /etc/profile.
+// Use outer -c so only the rcfile sources the fixture profile.
 function runInteractiveBashRcfile(
   bashProfileContent: string,
   rcfileSuffix: string,
