@@ -112,6 +112,7 @@ import {
   type FolderWorkspaceUpdateTicket
 } from './folder-workspace-update-coordinator'
 import {
+  catalogOwnerHostId,
   findIndexedProjectGroupOwner,
   isProjectGroupIdAmbiguous
 } from '@/lib/worktree-runtime-owner-index'
@@ -485,24 +486,42 @@ function projectGroupWithFetchedOwner(
   return { ...projectGroup, executionHostId: LOCAL_EXECUTION_HOST_ID }
 }
 
+type ProjectGroupRuntimeTarget = {
+  target: ReturnType<typeof getActiveRuntimeTarget>
+  // Why: state reconciliation must scope by the actually-mutated host, not bare
+  // groupId — a duplicate id across catalogs must not corrupt the sibling host's entry.
+  ownerHostId: ExecutionHostId
+}
+
 function getProjectGroupRuntimeTarget(
   state: Pick<AppState, 'projectGroups' | 'settings'>,
   groupId: string,
   executionHostId?: ExecutionHostId
-): ReturnType<typeof getActiveRuntimeTarget> | null {
+): ProjectGroupRuntimeTarget | null {
   const owner = findIndexedProjectGroupOwner(state.projectGroups, groupId, executionHostId)
-  if (!owner) {
-    // Why: a duplicate groupId across catalogs must not silently mutate whichever
-    // runtime happens to be focused — abort instead of guessing the host.
-    if (!executionHostId && isProjectGroupIdAmbiguous(state.projectGroups, groupId)) {
-      return null
+  if (owner) {
+    const ownerHost = parseExecutionHostId(owner.executionHostId)
+    return {
+      target:
+        ownerHost?.kind === 'runtime'
+          ? { kind: 'environment', environmentId: ownerHost.environmentId }
+          : { kind: 'local' },
+      ownerHostId: catalogOwnerHostId(owner)
     }
-    return getActiveRuntimeTarget(state.settings)
   }
-  const ownerHost = parseExecutionHostId(owner.executionHostId)
-  return ownerHost?.kind === 'runtime'
-    ? { kind: 'environment', environmentId: ownerHost.environmentId }
-    : { kind: 'local' }
+  // Why: a duplicate groupId across catalogs must not silently mutate whichever
+  // runtime happens to be focused — abort instead of guessing the host.
+  if (!executionHostId && isProjectGroupIdAmbiguous(state.projectGroups, groupId)) {
+    return null
+  }
+  const target = getActiveRuntimeTarget(state.settings)
+  return {
+    target,
+    ownerHostId:
+      target.kind === 'environment'
+        ? toRuntimeExecutionHostId(target.environmentId)
+        : LOCAL_EXECUTION_HOST_ID
+  }
 }
 
 function setupWithFetchedOwner(
@@ -3022,10 +3041,11 @@ export const createRepoSlice: StateCreator<AppState, [], [], RepoSlice> = (set, 
 
   updateProjectGroup: async (groupId, updates, options) => {
     try {
-      const target = getProjectGroupRuntimeTarget(get(), groupId, options?.executionHostId)
-      if (!target) {
+      const resolved = getProjectGroupRuntimeTarget(get(), groupId, options?.executionHostId)
+      if (!resolved) {
         return false
       }
+      const { target, ownerHostId } = resolved
       const updated =
         target.kind === 'local'
           ? await window.api.projectGroups.update({ groupId, updates })
@@ -3042,7 +3062,9 @@ export const createRepoSlice: StateCreator<AppState, [], [], RepoSlice> = (set, 
       }
       const ownedGroup = projectGroupWithFetchedOwner(updated, target)
       set((s) => ({
-        projectGroups: s.projectGroups.map((group) => (group.id === groupId ? ownedGroup : group)),
+        projectGroups: s.projectGroups.map((group) =>
+          group.id === groupId && catalogOwnerHostId(group) === ownerHostId ? ownedGroup : group
+        ),
         folderWorkspacePathStatuses: {}
       }))
       return true
@@ -3054,10 +3076,11 @@ export const createRepoSlice: StateCreator<AppState, [], [], RepoSlice> = (set, 
 
   deleteProjectGroup: async (groupId, options) => {
     try {
-      const target = getProjectGroupRuntimeTarget(get(), groupId, options?.executionHostId)
-      if (!target) {
+      const resolved = getProjectGroupRuntimeTarget(get(), groupId, options?.executionHostId)
+      if (!resolved) {
         return false
       }
+      const { target, ownerHostId } = resolved
       const deleted =
         target.kind === 'local'
           ? await window.api.projectGroups.delete({ groupId })
@@ -3073,14 +3096,19 @@ export const createRepoSlice: StateCreator<AppState, [], [], RepoSlice> = (set, 
         return false
       }
       set((s) => {
+        // Why: a duplicate id on the sibling host must not have its state touched by this delete.
         const deletedGroupIds = getProjectGroupSubtreeIds(s.projectGroups, groupId)
+        const isDeletedOnThisHost = (
+          entry: { connectionId?: string | null; executionHostId?: string | null },
+          id: string | null | undefined
+        ): boolean => !!id && deletedGroupIds.has(id) && catalogOwnerHostId(entry) === ownerHostId
         return {
-          projectGroups: s.projectGroups.filter((group) => !deletedGroupIds.has(group.id)),
+          projectGroups: s.projectGroups.filter((group) => !isDeletedOnThisHost(group, group.id)),
           folderWorkspaces: s.folderWorkspaces.filter(
-            (workspace) => !deletedGroupIds.has(workspace.projectGroupId)
+            (workspace) => !isDeletedOnThisHost(workspace, workspace.projectGroupId)
           ),
           repos: s.repos.map((repo) =>
-            repo.projectGroupId && deletedGroupIds.has(repo.projectGroupId)
+            isDeletedOnThisHost(repo, repo.projectGroupId)
               ? { ...repo, projectGroupId: null }
               : repo
           ),
@@ -3096,20 +3124,35 @@ export const createRepoSlice: StateCreator<AppState, [], [], RepoSlice> = (set, 
 
   deleteProjectGroupWithContainedProjects: async (groupId, options) => {
     const targets = selectProjectGroupRemovalTargets(get().projectGroups, get().repos, groupId)
-    const requestedProjectIds = options.removeContainedProjects ? targets.projectIds : []
     if (!targets.groupExists) {
       return {
         status: 'missing-group',
         groupId,
-        requestedProjectIds,
+        requestedProjectIds: [],
         removedProjectIds: [],
         failedProjectRemovals: []
       }
     }
 
-    const deleted = await get().deleteProjectGroup(groupId, {
-      executionHostId: options.executionHostId
+    const resolved = getProjectGroupRuntimeTarget(get(), groupId, options.executionHostId)
+    if (!resolved) {
+      return {
+        status: 'group-delete-failed',
+        groupId,
+        requestedProjectIds: [],
+        removedProjectIds: [],
+        failedProjectRemovals: []
+      }
+    }
+    const { ownerHostId } = resolved
+    // Why: a duplicate id on the sibling host must not have its contained projects removed too.
+    const scopedProjectIds = targets.projectIds.filter((projectId) => {
+      const repo = get().repos.find((candidate) => candidate.id === projectId)
+      return !!repo && catalogOwnerHostId(repo) === ownerHostId
     })
+    const requestedProjectIds = options.removeContainedProjects ? scopedProjectIds : []
+
+    const deleted = await get().deleteProjectGroup(groupId, { executionHostId: ownerHostId })
     if (!deleted) {
       return {
         status: 'group-delete-failed',
@@ -3132,11 +3175,11 @@ export const createRepoSlice: StateCreator<AppState, [], [], RepoSlice> = (set, 
 
     const removedProjectIds: string[] = []
     const failedProjectRemovals: ProjectRemovalFailure[] = []
-    for (const projectId of targets.projectIds) {
+    for (const projectId of scopedProjectIds) {
       const existedBeforeRemoval = get().repos.some((repo) => repo.id === projectId)
       try {
         if (existedBeforeRemoval) {
-          await get().removeProject(projectId)
+          await get().removeProject(projectId, { hostId: ownerHostId })
         }
       } catch (err) {
         console.error('Failed to remove contained project:', err)
@@ -3167,7 +3210,7 @@ export const createRepoSlice: StateCreator<AppState, [], [], RepoSlice> = (set, 
         return false
       }
       const target = groupId
-        ? getProjectGroupRuntimeTarget(get(), groupId, options?.executionHostId)
+        ? getProjectGroupRuntimeTarget(get(), groupId, options?.executionHostId)?.target
         : getActiveRuntimeTarget(settingsForRepoOwner(get(), projectId))
       if (!target) {
         return false
