@@ -34,6 +34,7 @@ const reposRemove = vi.fn()
 const reposRemoveForHost = vi.fn()
 const projectGroupsDelete = vi.fn()
 const projectGroupsUpdate = vi.fn()
+const projectGroupsMoveProject = vi.fn()
 const runtimeEnvironmentCall = vi.fn()
 const runtimeEnvironmentTransportCall = vi.fn()
 
@@ -45,6 +46,7 @@ beforeEach(() => {
   reposRemoveForHost.mockResolvedValue(undefined)
   projectGroupsDelete.mockReset()
   projectGroupsUpdate.mockReset()
+  projectGroupsMoveProject.mockReset()
   runtimeEnvironmentCall.mockReset()
   runtimeEnvironmentTransportCall.mockReset()
   runtimeEnvironmentTransportCall.mockImplementation((args: RuntimeEnvironmentCallRequest) => {
@@ -53,7 +55,11 @@ beforeEach(() => {
   vi.stubGlobal('window', {
     api: {
       repos: { remove: reposRemove, removeForHost: reposRemoveForHost },
-      projectGroups: { delete: projectGroupsDelete, update: projectGroupsUpdate },
+      projectGroups: {
+        delete: projectGroupsDelete,
+        update: projectGroupsUpdate,
+        moveProject: projectGroupsMoveProject
+      },
       runtimeEnvironments: { call: runtimeEnvironmentTransportCall }
     }
   })
@@ -225,6 +231,33 @@ describe('project group deletion store routing', () => {
     ).resolves.toBe(true)
 
     expect(projectGroupsDelete).toHaveBeenCalledWith({ groupId: projectGroup.id })
+    expect(runtimeEnvironmentCall).not.toHaveBeenCalled()
+  })
+
+  it('routes a move to the explicit host when a duplicate group id spans catalogs', async () => {
+    const movedRepo = { ...remoteRepo, projectGroupId: projectGroup.id }
+    projectGroupsMoveProject.mockResolvedValue(movedRepo)
+    const store = createTestStore()
+    store.setState({
+      settings: { activeRuntimeEnvironmentId: 'env-1' } as never,
+      repos: [remoteRepo],
+      projectGroups: [
+        { ...projectGroup, executionHostId: 'local' },
+        { ...projectGroup, executionHostId: 'runtime:env-1' }
+      ]
+    })
+
+    await expect(
+      store
+        .getState()
+        .moveProjectToGroup(remoteRepo.id, projectGroup.id, 3, { executionHostId: 'local' })
+    ).resolves.toBe(true)
+
+    expect(projectGroupsMoveProject).toHaveBeenCalledWith({
+      projectId: remoteRepo.id,
+      groupId: projectGroup.id,
+      order: 3
+    })
     expect(runtimeEnvironmentCall).not.toHaveBeenCalled()
   })
 

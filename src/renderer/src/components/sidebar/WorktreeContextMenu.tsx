@@ -34,8 +34,8 @@ import { useAppStore } from '@/store'
 import type { AppState } from '@/store/types'
 import { useAllWorktrees, useRepoById, useRepoMap, useWorktreeMap } from '@/store/selectors'
 import { cn } from '@/lib/utils'
+import { getProjectGroupExecutionHostId } from '@/lib/project-group-execution-host'
 import type { Repo } from '../../../../shared/repo-types'
-import { parseExecutionHostId } from '../../../../shared/execution-host'
 import type {
   WorkspaceStatus,
   WorkspaceStatusDefinition,
@@ -580,7 +580,7 @@ const WorktreeContextMenu = React.memo(function WorktreeContextMenu({
       }
       const group = await createProjectGroup(name)
       if (group) {
-        const executionHostId = parseExecutionHostId(group.executionHostId)?.id ?? undefined
+        const executionHostId = getProjectGroupExecutionHostId(group)
         await moveProjectToGroup(repo.id, group.id, undefined, { executionHostId })
       }
     },
@@ -592,9 +592,9 @@ const WorktreeContextMenu = React.memo(function WorktreeContextMenu({
       if (!repo || repo.projectGroupId === groupId) {
         return
       }
-      const executionHostId =
-        parseExecutionHostId(projectGroups.find((group) => group.id === groupId)?.executionHostId)
-          ?.id ?? undefined
+      const executionHostId = getProjectGroupExecutionHostId(
+        projectGroups.find((group) => group.id === groupId)
+      )
       void moveProjectToGroup(repo.id, groupId, undefined, { executionHostId })
     },
     [moveProjectToGroup, projectGroups, repo]
