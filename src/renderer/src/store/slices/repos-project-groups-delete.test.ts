@@ -448,6 +448,50 @@ describe('project group deletion store routing', () => {
     expect(store.getState().repos).toEqual([remoteDupRepo])
   })
 
+  it('does not remove an unrelated same-id repo that belongs to a sibling-host group', async () => {
+    projectGroupsDelete.mockResolvedValue(true)
+    const localGroup = { ...projectGroup, executionHostId: 'local' }
+    const remoteGroup = { ...projectGroup, executionHostId: 'runtime:env-1' }
+    // Why: this repo is the remote group's actual member, contributing 'dup-repo'
+    // to the unscoped target list — it must not leak into the local deletion.
+    const remoteMemberRepo: Repo = {
+      ...remoteRepo,
+      id: 'dup-repo',
+      executionHostId: 'runtime:env-1',
+      projectGroupId: remoteGroup.id
+    }
+    // Why: same id, same host as the group being deleted, but not a member of it.
+    const unrelatedLocalRepo: Repo = {
+      ...remoteRepo,
+      id: 'dup-repo',
+      executionHostId: 'local',
+      projectGroupId: null
+    }
+    const store = createTestStore()
+    store.setState({
+      settings: { activeRuntimeEnvironmentId: 'env-1' } as never,
+      projectGroups: [localGroup, remoteGroup],
+      repos: [remoteMemberRepo, unrelatedLocalRepo]
+    })
+
+    await expect(
+      store.getState().deleteProjectGroupWithContainedProjects(projectGroup.id, {
+        removeContainedProjects: true,
+        executionHostId: 'local'
+      })
+    ).resolves.toEqual({
+      status: 'deleted-group',
+      groupId: projectGroup.id,
+      requestedProjectIds: [],
+      removedProjectIds: [],
+      failedProjectRemovals: []
+    })
+
+    expect(reposRemove).not.toHaveBeenCalled()
+    expect(reposRemoveForHost).not.toHaveBeenCalled()
+    expect(store.getState().repos).toEqual([remoteMemberRepo, unrelatedLocalRepo])
+  })
+
   it('selects the owner-host repo for contained removal even when the sibling host row comes first', async () => {
     projectGroupsDelete.mockResolvedValue(true)
     const remoteDupRepo: Repo = {

@@ -137,4 +137,12 @@ describe('stripKnownHarnessEnvelope', () => {
       )
     ).toBe('Fix CI config')
   })
+
+  it('strips the whole wrapper when its content nests the same tag name', () => {
+    expect(
+      stripKnownHarnessEnvelope(
+        '<hook_result>captured output: <hook_result>inner</hook_result> tail</hook_result>Fix CI config'
+      )
+    ).toBe('Fix CI config')
+  })
 })
