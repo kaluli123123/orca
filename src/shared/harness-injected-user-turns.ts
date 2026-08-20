@@ -73,29 +73,24 @@ export function isKnownHarnessInjectedUserTurnText(text: string): boolean {
 // Why: content can nest another instance of the same tag (e.g. a bash-output
 // capture echoing raw hook text), so the matching close must track depth.
 function findMatchingCloseTagEnd(remaining: string, tagName: string): number | null {
-  const openRe = new RegExp(`<${tagName}(?=[\\s>]|$)`, 'gi')
-  const closeRe = new RegExp(`</${tagName}>`, 'gi')
+  // Why: one alternation scanned in a single forward pass — two separate
+  // regexes re-searching from each nested open tag is quadratic on deeply
+  // nested same-tag content.
+  const tagRe = new RegExp(`<(?:(/)${tagName}>|${tagName}(?=[\\s>]|$))`, 'gi')
   let depth = 1
-  let searchIndex = 1
-  while (true) {
-    openRe.lastIndex = searchIndex
-    closeRe.lastIndex = searchIndex
-    const nextOpen = openRe.exec(remaining)
-    const nextClose = closeRe.exec(remaining)
-    if (!nextClose) {
-      return null
-    }
-    if (nextOpen && nextOpen.index < nextClose.index) {
+  tagRe.lastIndex = 1
+  let match: RegExpExecArray | null
+  while ((match = tagRe.exec(remaining))) {
+    if (!match[1]) {
       depth += 1
-      searchIndex = nextOpen.index + nextOpen[0].length
       continue
     }
     depth -= 1
     if (depth === 0) {
-      return nextClose.index + nextClose[0].length
+      return tagRe.lastIndex
     }
-    searchIndex = nextClose.index + nextClose[0].length
   }
+  return null
 }
 
 /** Remove leading known harness XML wrappers while preserving the real prompt after them. */
