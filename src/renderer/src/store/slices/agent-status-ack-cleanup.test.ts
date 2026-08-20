@@ -117,3 +117,35 @@ describe('acknowledgedAgentsByPaneKey cleanup on teardown', () => {
     expect(ackAt < newEntry.stateStartedAt).toBe(true)
   })
 })
+
+// Why: acknowledging is one action with two records — `acknowledgedAgentsByPaneKey`
+// (Activity/sidebar counts) and `unreadAgentCompletionPanes` (tab dots, ⌘J rows,
+// the floating-workspace attention dot). Only the terminal-view path cleared the
+// second, so acknowledging from the Activity page left the completion dot lit
+// with nothing left to read.
+describe('acknowledgeAgents clears the unread agent-completion marker', () => {
+  it('drops the pane from unreadAgentCompletionPanes', () => {
+    const store = createTestStore()
+    store.getState().setAgentStatus('tab-1:0', { state: 'done', prompt: 'p', agentType: 'claude' })
+    store.getState().markAgentCompletionPaneUnread('tab-1:0')
+    expect(store.getState().unreadAgentCompletionPanes['tab-1:0']).toBe(true)
+
+    store.getState().acknowledgeAgents(['tab-1:0'])
+
+    expect(store.getState().unreadAgentCompletionPanes['tab-1:0']).toBeUndefined()
+  })
+
+  it('leaves other panes and the terminal-bell unread map untouched', () => {
+    const store = createTestStore()
+    store.getState().markAgentCompletionPaneUnread('tab-1:0')
+    store.getState().markAgentCompletionPaneUnread('tab-2:0')
+    store.getState().markTerminalPaneUnread('tab-1:0')
+
+    store.getState().acknowledgeAgents(['tab-1:0'])
+
+    expect(store.getState().unreadAgentCompletionPanes['tab-2:0']).toBe(true)
+    // Why: a BEL is a separate signal from an agent finishing; acknowledging
+    // the agent must not silence the terminal's own unread mark.
+    expect(store.getState().unreadTerminalPanes['tab-1:0']).toBe(true)
+  })
+})
