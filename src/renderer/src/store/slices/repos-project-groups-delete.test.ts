@@ -332,6 +332,39 @@ describe('project group deletion store routing', () => {
     ])
   })
 
+  it('does not delete an unrelated same-id local group reached only through the sibling host lineage', async () => {
+    projectGroupsDelete.mockResolvedValue(true)
+    const localRoot = { ...projectGroup, executionHostId: 'local' }
+    const remoteRoot = { ...projectGroup, executionHostId: 'runtime:env-1' }
+    // Why: this is the remote root's real child, contributing 'child-x' to an
+    // unscoped subtree walk via its parentGroupId matching the shared root id.
+    const remoteChild: ProjectGroup = {
+      ...projectGroup,
+      id: 'child-x',
+      executionHostId: 'runtime:env-1',
+      parentGroupId: remoteRoot.id
+    }
+    // Why: same id, same host as the group being deleted, but its real parent
+    // is a different local group — not actually part of localRoot's subtree.
+    const unrelatedLocalChild: ProjectGroup = {
+      ...projectGroup,
+      id: 'child-x',
+      executionHostId: 'local',
+      parentGroupId: 'some-other-local-group'
+    }
+    const store = createTestStore()
+    store.setState({
+      settings: { activeRuntimeEnvironmentId: 'env-1' } as never,
+      projectGroups: [localRoot, remoteRoot, remoteChild, unrelatedLocalChild]
+    })
+
+    await expect(
+      store.getState().deleteProjectGroup(projectGroup.id, { executionHostId: 'local' })
+    ).resolves.toBe(true)
+
+    expect(store.getState().projectGroups).toEqual([remoteRoot, remoteChild, unrelatedLocalChild])
+  })
+
   it('scopes update state reconciliation to the disambiguated host, leaving the sibling host untouched', async () => {
     const localGroup = { ...projectGroup, executionHostId: 'local' }
     const remoteGroup = { ...projectGroup, executionHostId: 'runtime:env-1' }
