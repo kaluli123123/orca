@@ -228,7 +228,7 @@ export function BrowserProfileRow({
             size="icon"
             className="size-7 text-muted-foreground hover:text-destructive"
             aria-label={translate(
-              'auto.components.settings.BrowserProfileRow.clearDefaultCookies',
+              'auto.components.settings.BrowserProfileRow.4054c458e1',
               'Clear default cookies'
             )}
             data-testid="clear-default-cookies-button"
