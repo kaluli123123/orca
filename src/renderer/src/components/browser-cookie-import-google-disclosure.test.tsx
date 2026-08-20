@@ -134,6 +134,7 @@ describe('cookie-import Google disclosure footer', () => {
     const clearButton = container.querySelector('[data-testid="clear-default-cookies-button"]')
     expect(clearButton).not.toBeNull()
     expect((clearButton as HTMLButtonElement | null)?.disabled).toBe(false)
+    expect(clearButton?.getAttribute('aria-label')).toBe('Clear default cookies')
   })
 
   it('reads the footer copy from the catalog', () => {
