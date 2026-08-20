@@ -1,8 +1,8 @@
 import { execFileSync } from 'node:child_process'
 import { lstatSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
-import { devNull, tmpdir } from 'node:os'
+import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   clearConfiguredWorktreeSharedDirectoriesCacheForTests,
   getConfiguredWorktreeSharedDirectories,
@@ -16,14 +16,25 @@ import {
 import { assertWorktreeCleanForRemoval } from './worktree'
 import { getStatus } from './status'
 
+// Why: os.devNull is `\\.\nul` on Windows, which Git rejects as a config path —
+// every git call here then fails. A path that does not exist reads as empty
+// config on every platform; a private mkdtemp dir is what makes it not exist,
+// rather than hoping nobody else wrote to the shared temp dir.
+const CONFIG_ISOLATION_DIR = mkdtempSync(join(tmpdir(), 'orca-shared-dirs-noconfig-'))
+const ABSENT_GIT_CONFIG = join(CONFIG_ISOLATION_DIR, 'absent.gitconfig')
+
+afterAll(() => {
+  rmSync(CONFIG_ISOLATION_DIR, { recursive: true, force: true })
+})
+
 const git = (args: string[], cwd: string): void => {
   execFileSync('git', args, {
     cwd,
     stdio: 'ignore',
     env: {
       ...process.env,
-      GIT_CONFIG_GLOBAL: devNull,
-      GIT_CONFIG_SYSTEM: devNull
+      GIT_CONFIG_GLOBAL: ABSENT_GIT_CONFIG,
+      GIT_CONFIG_SYSTEM: ABSENT_GIT_CONFIG
     }
   })
 }
