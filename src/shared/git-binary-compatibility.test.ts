@@ -14,6 +14,7 @@ import {
   isUnsupportedWorktreeListZError
 } from './git-worktree-command-capabilities'
 import { gitCredentialPromptGuardEnv } from './git-credential-prompt-env'
+import { GIT_HISTORY_COMMIT_FORMAT, parseGitHistoryLog } from './git-history-log-parser'
 import {
   githubPullRequestHeadLocalRef,
   gitlabMergeRequestHeadLocalRef,
@@ -278,5 +279,32 @@ describeBinaryCompatibility('real Git binary compatibility', () => {
     await expect(
       runGit(['show', '--end-of-options', `${pinnedOid}:absent.txt`])
     ).rejects.toBeDefined()
+  })
+  // Why pin this: %(decorate:…) is Git 2.43+, and an older Git does not fail on
+  // it — it echoes the placeholder and exits zero, which silently emptied every
+  // commit's ref badges (#15507). The same record carries %D so both sides of
+  // the boundary resolve decorations; this asserts the echo AND the recovery.
+  it('reads commit decorations on both sides of the %(decorate:...) boundary', async () => {
+    await writeFile(join(repoPath, 'decorated.txt'), 'decorated\n')
+    await runGit(['add', 'decorated.txt'])
+    await runGit(['commit', '-qm', 'decorated commit'])
+    await runGit(['tag', 'compat-decorated'])
+    const head = (await runGit(['rev-parse', 'HEAD'])).stdout.trim()
+
+    const log = await runGit([
+      'log',
+      `--format=${GIT_HISTORY_COMMIT_FORMAT}`,
+      '-z',
+      '--decorate=full',
+      '-n1',
+      head
+    ])
+
+    expect(log.stdout.includes('%(decorate')).toBe(!supports(2, 43))
+
+    const [item] = parseGitHistoryLog(log.stdout)
+    expect(item?.id).toBe(head)
+    expect(item?.subject).toBe('decorated commit')
+    expect(item?.references?.map((ref) => ref.id)).toContain('refs/tags/compat-decorated')
   })
 })
