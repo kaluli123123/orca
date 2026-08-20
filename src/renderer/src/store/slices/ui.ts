@@ -1208,7 +1208,19 @@ export const createUISlice: StateCreator<AppState, [], [], UISlice> = (set, get)
       const now = Date.now()
       // Why: only reallocate if an ack advances; compare prev<now not !== — Date.now() ticks every ms and !== would rewrite the map every call.
       let next: Record<string, number> | null = null
+      // Why: acknowledging is one action with two records — this map feeds the
+      // Activity/sidebar counts, unreadAgentCompletionPanes feeds tab dots, ⌘J
+      // rows and the floating-workspace dot. Clearing only the first left the
+      // completion dot lit with nothing left to read (the terminal view's
+      // clearTerminalPaneUnread was the only path that cleared the second).
+      let nextUnreadCompletions: Record<string, true> | null = null
       for (const key of paneKeys) {
+        if (s.unreadAgentCompletionPanes?.[key]) {
+          if (nextUnreadCompletions === null) {
+            nextUnreadCompletions = { ...s.unreadAgentCompletionPanes }
+          }
+          delete nextUnreadCompletions[key]
+        }
         const prev = s.acknowledgedAgentsByPaneKey[key] ?? 0
         const liveEntry = s.agentStatusByPaneKey?.[key]
         if (liveEntry) {
@@ -1237,7 +1249,13 @@ export const createUISlice: StateCreator<AppState, [], [], UISlice> = (set, get)
           next[key] = now
         }
       }
-      return next ? { acknowledgedAgentsByPaneKey: next } : s
+      if (!next && !nextUnreadCompletions) {
+        return s
+      }
+      return {
+        ...(next ? { acknowledgedAgentsByPaneKey: next } : {}),
+        ...(nextUnreadCompletions ? { unreadAgentCompletionPanes: nextUnreadCompletions } : {})
+      }
     })
     const notificationIds = [...notificationIdsToDismiss]
     if (notificationIds.length > 0 && typeof window !== 'undefined') {
