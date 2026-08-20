@@ -2,9 +2,19 @@ import type { GitHistoryItem, GitHistoryItemRef } from './git-history-types'
 import { iterateNulDelimitedFields } from './nul-delimited-fields'
 
 const GIT_HISTORY_DECORATION_SEPARATOR = '\x1f'
+const GIT_HISTORY_LEGACY_DECORATION_SEPARATOR = ','
 
+// Why: %(decorate:…) is Git 2.43+; below that Git prints the placeholder
+// verbatim and exits zero, so the same record also carries %D (Git 2.10+) as a
+// comma-separated fallback. Prefer %(decorate:…) — its separator survives the
+// commas Git permits inside ref names.
 export const GIT_HISTORY_COMMIT_FORMAT =
-  '%H%n%aN%n%aE%n%at%n%ct%n%P%n%(decorate:prefix=,suffix=,separator=%x1f)%n%B'
+  '%H%n%aN%n%aE%n%at%n%ct%n%P%n%(decorate:prefix=,suffix=,separator=%x1f)%n%D%n%B'
+
+// Why: an old Git echoes the placeholder with %x1f already expanded. No ref
+// name may contain a control character, so an exact match is an unambiguous
+// "this Git predates %(decorate:…)" cue rather than a prefix guess.
+const UNEXPANDED_DECORATE_PLACEHOLDER = `%(decorate:prefix=,suffix=,separator=${GIT_HISTORY_DECORATION_SEPARATOR})`
 
 export function shortGitHash(hash: string): string {
   return hash.slice(0, 7)
@@ -15,17 +25,20 @@ function commitSubject(message: string): string {
   return firstLine || '(no commit message)'
 }
 
-function parseGitDecorationRefs(raw: string, revision: string): GitHistoryItemRef[] {
+function parseGitDecorationRefs(
+  raw: string,
+  revision: string,
+  separator: string
+): GitHistoryItemRef[] {
   if (!raw.trim()) {
     return []
   }
 
   const refs: GitHistoryItemRef[] = []
-  // Why: Git permits commas in ref names, so Orca's git log format uses a
-  // control-character separator that Git ref names cannot contain.
-  const parts = raw.includes(GIT_HISTORY_DECORATION_SEPARATOR)
-    ? raw.split(GIT_HISTORY_DECORATION_SEPARATOR)
-    : raw.split(',')
+  // Why: the separator comes from which field produced `raw`, never from
+  // sniffing its content — a commit with a single decoration carries no
+  // separator at all, and guessing split `feat,one` into two bogus refs.
+  const parts = raw.split(separator)
 
   for (const part of parts) {
     const ref = part.trim()
@@ -115,8 +128,10 @@ export function parseGitHistoryLog(stdout: string): GitHistoryItem[] {
     const authorEmail = lines[2] ?? ''
     const authorDateSeconds = Number.parseInt(lines[3] ?? '', 10)
     const parents = (lines[5] ?? '').trim()
-    const decorations = lines[6] ?? ''
-    const message = lines.slice(7).join('\n').replace(/\n$/, '')
+    const decorateField = lines[6] ?? ''
+    const isLegacyGit = decorateField === UNEXPANDED_DECORATE_PLACEHOLDER
+    const decorations = isLegacyGit ? (lines[7] ?? '') : decorateField
+    const message = lines.slice(8).join('\n').replace(/\n$/, '')
 
     items.push({
       id: hash,
@@ -127,7 +142,11 @@ export function parseGitHistoryLog(stdout: string): GitHistoryItem[] {
       authorEmail: authorEmail || undefined,
       displayId: shortGitHash(hash),
       timestamp: Number.isFinite(authorDateSeconds) ? authorDateSeconds * 1000 : undefined,
-      references: parseGitDecorationRefs(decorations, hash)
+      references: parseGitDecorationRefs(
+        decorations,
+        hash,
+        isLegacyGit ? GIT_HISTORY_LEGACY_DECORATION_SEPARATOR : GIT_HISTORY_DECORATION_SEPARATOR
+      )
     })
   }
   return items
