@@ -150,10 +150,10 @@ export function useWorktreeSidebarHeaderDrag(args: {
     (repoId: string, projectGroupId: string | null, order: number) => {
       const executionHostId = projectGroupId
         ? getCatalogEntryExecutionHostId(projectGroupByIdForHeaderDrag.get(projectGroupId))
-        : undefined
+        : getCatalogEntryExecutionHostId(repoMap.get(repoId))
       void moveProjectToGroup(repoId, projectGroupId, order, { executionHostId })
     },
-    [moveProjectToGroup, projectGroupByIdForHeaderDrag]
+    [moveProjectToGroup, projectGroupByIdForHeaderDrag, repoMap]
   )
   const commitProjectGroupHeaderOrder = useCallback(
     (groupId: string, tabOrder: number) => {
