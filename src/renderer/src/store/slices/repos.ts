@@ -3098,8 +3098,13 @@ export const createRepoSlice: StateCreator<AppState, [], [], RepoSlice> = (set, 
         return false
       }
       set((s) => {
-        // Why: a duplicate id on the sibling host must not have its state touched by this delete.
-        const deletedGroupIds = getProjectGroupSubtreeIds(s.projectGroups, groupId)
+        // Why: scope the lineage walk itself, not just its output — a sibling
+        // host's parent links must not contribute descendant ids that then
+        // match an unrelated same-id group on this host.
+        const deletedGroupIds = getProjectGroupSubtreeIds(
+          s.projectGroups.filter((group) => catalogOwnerHostId(group) === ownerHostId),
+          groupId
+        )
         const isDeletedOnThisHost = (
           entry: { connectionId?: string | null; executionHostId?: string | null },
           id: string | null | undefined
