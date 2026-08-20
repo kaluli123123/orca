@@ -24,6 +24,30 @@ export type ProjectGroup = {
 
 const EMPTY_GROUP_KEY = '__empty__'
 
+type ProjectFieldValue = GitHubProjectRow['fieldValuesByFieldId'][string]
+
+/** False for anything that renders as an empty cell: an absent value, and a
+ *  present one whose payload is blank — the normalizer turns a null text/date
+ *  into '' and dropped users/labels into []. All of them must group and sort
+ *  with the missing-value rows, in both directions. */
+function hasNonEmptyFieldValue(value: ProjectFieldValue | undefined): value is ProjectFieldValue {
+  if (!value) {
+    return false
+  }
+  switch (value.kind) {
+    case 'users':
+      return Boolean(value.users[0]?.login)
+    case 'labels':
+      return Boolean(value.labels[0]?.name)
+    case 'text':
+      return value.text.trim().length > 0
+    case 'date':
+      return value.date.trim().length > 0
+    default:
+      return true
+  }
+}
+
 // Why: use a finite sentinel instead of Infinity so subtractions in the sort
 // comparator stay finite. `Infinity - Infinity` is NaN, which makes
 // Array.sort's behavior implementation-defined and skips later tie-breaks.
@@ -35,7 +59,7 @@ function getFieldValueForGrouping(
   field: GitHubProjectField
 ): { key: string; label: string; orderHint: number; iteration: ProjectGroup['iteration'] } {
   const value = row.fieldValuesByFieldId[field.id]
-  if (!value) {
+  if (!hasNonEmptyFieldValue(value)) {
     return {
       key: EMPTY_GROUP_KEY,
       label: labelForEmpty(field),
@@ -144,14 +168,13 @@ function compareSort(a: GitHubProjectRow, b: GitHubProjectRow, sort: GitHubProje
   const field = sort.field
   const aValue = a.fieldValuesByFieldId[field.id]
   const bValue = b.fieldValuesByFieldId[field.id]
-  if (!aValue && !bValue) {
-    return 0
-  }
-  if (!aValue) {
-    return 1
-  }
-  if (!bValue) {
-    return -1
+  // Why: return before the trailing DESC flip so empty sorts last in both
+  // directions — negating it would split visually identical empty cells
+  // across both ends of the same table.
+  const aFilled = hasNonEmptyFieldValue(aValue)
+  const bFilled = hasNonEmptyFieldValue(bValue)
+  if (!aFilled || !bFilled) {
+    return aFilled === bFilled ? 0 : aFilled ? -1 : 1
   }
 
   let cmp = 0
@@ -182,29 +205,9 @@ function compareSort(a: GitHubProjectRow, b: GitHubProjectRow, sort: GitHubProje
   } else if (aValue.kind === 'text' && bValue.kind === 'text') {
     cmp = aValue.text.localeCompare(bValue.text)
   } else if (aValue.kind === 'users' && bValue.kind === 'users') {
-    const aLogin = aValue.users[0]?.login ?? ''
-    const bLogin = bValue.users[0]?.login ?? ''
-    if (!aLogin && !bLogin) {
-      cmp = 0
-    } else if (!aLogin) {
-      cmp = 1
-    } else if (!bLogin) {
-      cmp = -1
-    } else {
-      cmp = aLogin.localeCompare(bLogin)
-    }
+    cmp = (aValue.users[0]?.login ?? '').localeCompare(bValue.users[0]?.login ?? '')
   } else if (aValue.kind === 'labels' && bValue.kind === 'labels') {
-    const aName = aValue.labels[0]?.name ?? ''
-    const bName = bValue.labels[0]?.name ?? ''
-    if (!aName && !bName) {
-      cmp = 0
-    } else if (!aName) {
-      cmp = 1
-    } else if (!bName) {
-      cmp = -1
-    } else {
-      cmp = aName.localeCompare(bName)
-    }
+    cmp = (aValue.labels[0]?.name ?? '').localeCompare(bValue.labels[0]?.name ?? '')
   } else {
     // Why: unknown sort-field kind — ignore this sort field and fall through
     // to tie-breaks (and eventually row.position).
