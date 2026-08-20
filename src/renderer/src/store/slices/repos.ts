@@ -3221,15 +3221,22 @@ export const createRepoSlice: StateCreator<AppState, [], [], RepoSlice> = (set, 
 
   moveProjectToGroup: async (projectId, groupId, order, options) => {
     try {
-      if (!findRepoForHost(get().repos, projectId, { settings: get().settings })) {
+      const resolvedGroup = groupId
+        ? getProjectGroupRuntimeTarget(get(), groupId, options?.executionHostId)
+        : null
+      if (groupId && !resolvedGroup) {
         return false
       }
-      const target = groupId
-        ? getProjectGroupRuntimeTarget(get(), groupId, options?.executionHostId)?.target
-        : getActiveRuntimeTarget(settingsForRepoOwner(get(), projectId))
-      if (!target) {
+      if (
+        !findRepoForHost(get().repos, projectId, {
+          settings: get().settings,
+          hostId: resolvedGroup?.ownerHostId
+        })
+      ) {
         return false
       }
+      const target =
+        resolvedGroup?.target ?? getActiveRuntimeTarget(settingsForRepoOwner(get(), projectId))
       const moved =
         target.kind === 'local'
           ? await window.api.projectGroups.moveProject({
