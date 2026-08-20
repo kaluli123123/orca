@@ -16,7 +16,13 @@ describe('getProjectGroupExecutionHostId', () => {
     )
   })
 
-  it('returns undefined for a group with no execution host set', () => {
-    expect(getProjectGroupExecutionHostId({ executionHostId: null })).toBeUndefined()
+  it('defaults an entry with neither field set to the local host id', () => {
+    expect(getProjectGroupExecutionHostId({ executionHostId: null })).toBe('local')
+  })
+
+  it('falls back to the SSH host id for a connection-backed entry', () => {
+    expect(
+      getProjectGroupExecutionHostId({ executionHostId: null, connectionId: 'ssh-target-1' })
+    ).toBe('ssh:ssh-target-1')
   })
 })
