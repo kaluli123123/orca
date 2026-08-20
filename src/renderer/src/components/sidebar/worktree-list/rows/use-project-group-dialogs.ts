@@ -124,12 +124,30 @@ export function useProjectGroupDialogs(args: {
     [createProjectGroup, moveProjectToGroup, nameDialog, projectGroups, updateProjectGroup]
   )
 
+  const deleteGroupExecutionHostId = useMemo(
+    () =>
+      deleteDialog
+        ? getProjectGroupExecutionHostId(
+            projectGroups.find((group) => group.id === deleteDialog.groupId)
+          )
+        : undefined,
+    [deleteDialog, projectGroups]
+  )
   const deleteTargets = useMemo(() => {
     if (!deleteDialog) {
       return null
     }
-    return selectProjectGroupRemovalTargets(projectGroups, repos, deleteDialog.groupId)
-  }, [deleteDialog, projectGroups, repos])
+    if (!deleteGroupExecutionHostId) {
+      return selectProjectGroupRemovalTargets(projectGroups, repos, deleteDialog.groupId)
+    }
+    return selectProjectGroupRemovalTargets(
+      projectGroups.filter(
+        (group) => getProjectGroupExecutionHostId(group) === deleteGroupExecutionHostId
+      ),
+      repos.filter((repo) => getProjectGroupExecutionHostId(repo) === deleteGroupExecutionHostId),
+      deleteDialog.groupId
+    )
+  }, [deleteDialog, deleteGroupExecutionHostId, projectGroups, repos])
   const deleteProjectCount = deleteTargets?.projectIds.length ?? 0
   const deleteProjectNames = useMemo(
     () =>
@@ -150,13 +168,10 @@ export function useProjectGroupDialogs(args: {
       return
     }
     try {
-      const executionHostId = getProjectGroupExecutionHostId(
-        projectGroups.find((group) => group.id === deleteDialog.groupId)
-      )
       reportProjectGroupDeleteFailures(
         await deleteProjectGroupWithContainedProjects(deleteDialog.groupId, {
           removeContainedProjects,
-          executionHostId
+          executionHostId: deleteGroupExecutionHostId
         })
       )
     } finally {
@@ -165,7 +180,7 @@ export function useProjectGroupDialogs(args: {
     }
   }, [
     deleteProjectGroupWithContainedProjects,
-    projectGroups,
+    deleteGroupExecutionHostId,
     removeContainedProjects,
     deleteDialog
   ])
