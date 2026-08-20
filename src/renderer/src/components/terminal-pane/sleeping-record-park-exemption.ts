@@ -1,4 +1,5 @@
 import type { SleepingAgentSessionRecord } from '../../../../shared/agent-session-resume'
+import { parseLegacyNumericPaneKey, parsePaneKey } from '../../../../shared/stable-pane-id'
 import { isPassiveCompletedHibernationEvidence } from '../../lib/sleeping-agent-pane-ownership'
 
 const EMPTY_TAB_IDS: ReadonlySet<string> = new Set()
@@ -19,7 +20,14 @@ export function selectSleepingRecordParkExemptTabIds(
     if (record.automaticResumeBlockedBy || isPassiveCompletedHibernationEvidence(record)) {
       continue
     }
-    const tabId = record.tabId ?? record.paneKey.slice(0, record.paneKey.indexOf(':'))
+    // Why the parsers, not slice(0, indexOf(':')): a paneKey with no delimiter
+    // made that slice(0, -1), truncating the last character into a tab id that
+    // owns nothing — so the tab actually holding the record got parked and
+    // could never cold-restore. Both parsers reject a malformed key outright.
+    const tabId =
+      record.tabId ??
+      parsePaneKey(record.paneKey)?.tabId ??
+      parseLegacyNumericPaneKey(record.paneKey)?.tabId
     if (tabId) {
       owned ??= new Set()
       owned.add(tabId)
