@@ -34,7 +34,7 @@ import { useAppStore } from '@/store'
 import type { AppState } from '@/store/types'
 import { useAllWorktrees, useRepoById, useRepoMap, useWorktreeMap } from '@/store/selectors'
 import { cn } from '@/lib/utils'
-import { getProjectGroupExecutionHostId } from '@/lib/project-group-execution-host'
+import { getCatalogEntryExecutionHostId } from '@/lib/catalog-entry-execution-host'
 import type { Repo } from '../../../../shared/repo-types'
 import type {
   WorkspaceStatus,
@@ -580,7 +580,7 @@ const WorktreeContextMenu = React.memo(function WorktreeContextMenu({
       }
       const group = await createProjectGroup(name)
       if (group) {
-        const executionHostId = getProjectGroupExecutionHostId(group)
+        const executionHostId = getCatalogEntryExecutionHostId(group)
         await moveProjectToGroup(repo.id, group.id, undefined, { executionHostId })
       }
     },
@@ -592,7 +592,7 @@ const WorktreeContextMenu = React.memo(function WorktreeContextMenu({
       if (!repo || repo.projectGroupId === groupId) {
         return
       }
-      const executionHostId = getProjectGroupExecutionHostId(
+      const executionHostId = getCatalogEntryExecutionHostId(
         projectGroups.find((group) => group.id === groupId)
       )
       void moveProjectToGroup(repo.id, groupId, undefined, { executionHostId })
@@ -604,7 +604,8 @@ const WorktreeContextMenu = React.memo(function WorktreeContextMenu({
     if (!repo) {
       return
     }
-    void moveProjectToGroup(repo.id, null)
+    const executionHostId = getCatalogEntryExecutionHostId(repo)
+    void moveProjectToGroup(repo.id, null, undefined, { executionHostId })
   }, [moveProjectToGroup, repo])
 
   const handleAssignWorkspaceStatus = useCallback(

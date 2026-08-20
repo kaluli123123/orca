@@ -3,7 +3,7 @@ import { toast } from 'sonner'
 import { useAppStore } from '@/store'
 import { translate } from '@/i18n/i18n'
 import { selectProjectGroupRemovalTargets } from '@/store/slices/project-group-removal-targets'
-import { getProjectGroupExecutionHostId } from '@/lib/project-group-execution-host'
+import { getCatalogEntryExecutionHostId } from '@/lib/catalog-entry-execution-host'
 import type { ProjectGroup } from '../../../../../../shared/project-group-types'
 import type { Repo } from '../../../../../../shared/repo-types'
 
@@ -84,7 +84,7 @@ export function useProjectGroupDialogs(args: {
       if (repo.projectGroupId === groupId) {
         return
       }
-      const executionHostId = getProjectGroupExecutionHostId(
+      const executionHostId = getCatalogEntryExecutionHostId(
         projectGroups.find((group) => group.id === groupId)
       )
       void moveProjectToGroup(repo.id, groupId, undefined, { executionHostId })
@@ -94,7 +94,8 @@ export function useProjectGroupDialogs(args: {
 
   const handleRemoveProjectFromGroup = useCallback(
     (repo: Repo) => {
-      void moveProjectToGroup(repo.id, null)
+      const executionHostId = getCatalogEntryExecutionHostId(repo)
+      void moveProjectToGroup(repo.id, null, undefined, { executionHostId })
     },
     [moveProjectToGroup]
   )
@@ -111,12 +112,12 @@ export function useProjectGroupDialogs(args: {
       if (nameDialog.type === 'create-from-repo') {
         const group = await createProjectGroup(name)
         if (group) {
-          const executionHostId = getProjectGroupExecutionHostId(group)
+          const executionHostId = getCatalogEntryExecutionHostId(group)
           await moveProjectToGroup(nameDialog.repo.id, group.id, undefined, { executionHostId })
         }
         return
       }
-      const executionHostId = getProjectGroupExecutionHostId(
+      const executionHostId = getCatalogEntryExecutionHostId(
         projectGroups.find((group) => group.id === nameDialog.groupId)
       )
       await updateProjectGroup(nameDialog.groupId, { name }, { executionHostId })
@@ -127,7 +128,7 @@ export function useProjectGroupDialogs(args: {
   const deleteGroupExecutionHostId = useMemo(
     () =>
       deleteDialog
-        ? getProjectGroupExecutionHostId(
+        ? getCatalogEntryExecutionHostId(
             projectGroups.find((group) => group.id === deleteDialog.groupId)
           )
         : undefined,
@@ -142,9 +143,9 @@ export function useProjectGroupDialogs(args: {
     }
     return selectProjectGroupRemovalTargets(
       projectGroups.filter(
-        (group) => getProjectGroupExecutionHostId(group) === deleteGroupExecutionHostId
+        (group) => getCatalogEntryExecutionHostId(group) === deleteGroupExecutionHostId
       ),
-      repos.filter((repo) => getProjectGroupExecutionHostId(repo) === deleteGroupExecutionHostId),
+      repos.filter((repo) => getCatalogEntryExecutionHostId(repo) === deleteGroupExecutionHostId),
       deleteDialog.groupId
     )
   }, [deleteDialog, deleteGroupExecutionHostId, projectGroups, repos])

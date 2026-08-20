@@ -298,6 +298,38 @@ describe('project group deletion store routing', () => {
     expect(runtimeEnvironmentCall).not.toHaveBeenCalled()
   })
 
+  it('routes an ungroup to the explicit host when a duplicate repo id spans catalogs', async () => {
+    const localDupRepo: Repo = {
+      ...remoteRepo,
+      id: 'dup-repo',
+      executionHostId: 'local',
+      projectGroupId: projectGroup.id
+    }
+    const remoteDupRepo: Repo = {
+      ...remoteRepo,
+      id: 'dup-repo',
+      executionHostId: 'runtime:env-1',
+      projectGroupId: projectGroup.id
+    }
+    projectGroupsMoveProject.mockResolvedValue({ ...localDupRepo, projectGroupId: null })
+    const store = createTestStore()
+    store.setState({
+      settings: { activeRuntimeEnvironmentId: 'env-1' } as never,
+      repos: [localDupRepo, remoteDupRepo]
+    })
+
+    await expect(
+      store.getState().moveProjectToGroup('dup-repo', null, undefined, { executionHostId: 'local' })
+    ).resolves.toBe(true)
+
+    expect(projectGroupsMoveProject).toHaveBeenCalledWith({
+      projectId: 'dup-repo',
+      groupId: null,
+      order: undefined
+    })
+    expect(runtimeEnvironmentCall).not.toHaveBeenCalled()
+  })
+
   it('scopes delete state reconciliation to the disambiguated host, leaving the sibling host untouched', async () => {
     projectGroupsDelete.mockResolvedValue(true)
     const localGroup = { ...projectGroup, executionHostId: 'local' }
