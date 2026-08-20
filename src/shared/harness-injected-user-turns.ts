@@ -70,10 +70,8 @@ export function isKnownHarnessInjectedUserTurnText(text: string): boolean {
   return HARNESS_INJECTED_TURN_PREFIXES.some((prefix) => normalized.startsWith(prefix))
 }
 
-// Why: a wrapper's own content can legitimately contain another instance of
-// the same tag (e.g. a bash-output capture echoing raw hook text). The first
-// </tag> match alone would close on the inner tag and leave the outer
-// wrapper's tail — including its own closing tag — in the stripped result.
+// Why: content can nest another instance of the same tag (e.g. a bash-output
+// capture echoing raw hook text), so the matching close must track depth.
 function findMatchingCloseTagEnd(remaining: string, tagName: string): number | null {
   const openRe = new RegExp(`<${tagName}(?=[\\s>]|$)`, 'gi')
   const closeRe = new RegExp(`</${tagName}>`, 'gi')
