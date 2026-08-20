@@ -3132,8 +3132,8 @@ export const createRepoSlice: StateCreator<AppState, [], [], RepoSlice> = (set, 
   },
 
   deleteProjectGroupWithContainedProjects: async (groupId, options) => {
-    const targets = selectProjectGroupRemovalTargets(get().projectGroups, get().repos, groupId)
-    if (!targets.groupExists) {
+    const groupExists = get().projectGroups.some((group) => group.id === groupId)
+    if (!groupExists) {
       return {
         status: 'missing-group',
         groupId,
@@ -3154,12 +3154,15 @@ export const createRepoSlice: StateCreator<AppState, [], [], RepoSlice> = (set, 
       }
     }
     const { ownerHostId } = resolved
-    // Why: a duplicate id on the sibling host must not have its contained projects removed too.
-    const scopedProjectIds = targets.projectIds.filter((projectId) =>
-      get().repos.some(
-        (candidate) => candidate.id === projectId && catalogOwnerHostId(candidate) === ownerHostId
-      )
+    // Why: scope the subtree walk itself to the owner host, not just its
+    // output — a same-id repo that coincidentally exists on this host, but
+    // belongs to an unrelated sibling-host group, must not be swept in.
+    const hostScopedGroups = get().projectGroups.filter(
+      (group) => catalogOwnerHostId(group) === ownerHostId
     )
+    const hostScopedRepos = get().repos.filter((repo) => catalogOwnerHostId(repo) === ownerHostId)
+    const targets = selectProjectGroupRemovalTargets(hostScopedGroups, hostScopedRepos, groupId)
+    const scopedProjectIds = targets.projectIds
     const requestedProjectIds = options.removeContainedProjects ? scopedProjectIds : []
 
     const deleted = await get().deleteProjectGroup(groupId, { executionHostId: ownerHostId })

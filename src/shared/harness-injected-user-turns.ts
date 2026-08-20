@@ -70,6 +70,36 @@ export function isKnownHarnessInjectedUserTurnText(text: string): boolean {
   return HARNESS_INJECTED_TURN_PREFIXES.some((prefix) => normalized.startsWith(prefix))
 }
 
+// Why: a wrapper's own content can legitimately contain another instance of
+// the same tag (e.g. a bash-output capture echoing raw hook text). The first
+// </tag> match alone would close on the inner tag and leave the outer
+// wrapper's tail — including its own closing tag — in the stripped result.
+function findMatchingCloseTagEnd(remaining: string, tagName: string): number | null {
+  const openRe = new RegExp(`<${tagName}(?=[\\s>]|$)`, 'gi')
+  const closeRe = new RegExp(`</${tagName}>`, 'gi')
+  let depth = 1
+  let searchIndex = 1
+  while (true) {
+    openRe.lastIndex = searchIndex
+    closeRe.lastIndex = searchIndex
+    const nextOpen = openRe.exec(remaining)
+    const nextClose = closeRe.exec(remaining)
+    if (!nextClose) {
+      return null
+    }
+    if (nextOpen && nextOpen.index < nextClose.index) {
+      depth += 1
+      searchIndex = nextOpen.index + nextOpen[0].length
+      continue
+    }
+    depth -= 1
+    if (depth === 0) {
+      return nextClose.index + nextClose[0].length
+    }
+    searchIndex = nextClose.index + nextClose[0].length
+  }
+}
+
 /** Remove leading known harness XML wrappers while preserving the real prompt after them. */
 export function stripKnownHarnessEnvelope(text: string): string {
   let remaining = text.trim()
@@ -78,11 +108,11 @@ export function stripKnownHarnessEnvelope(text: string): string {
     if (!tagName || !KNOWN_HARNESS_TAG_NAMES.has(tagName)) {
       break
     }
-    const closeTag = new RegExp(`</${tagName}>`, 'i').exec(remaining)
-    if (!closeTag || closeTag.index === undefined) {
+    const closeTagEnd = findMatchingCloseTagEnd(remaining, tagName)
+    if (closeTagEnd === null) {
       return ''
     }
-    remaining = remaining.slice(closeTag.index + closeTag[0].length).trim()
+    remaining = remaining.slice(closeTagEnd).trim()
   }
   return remaining
 }
