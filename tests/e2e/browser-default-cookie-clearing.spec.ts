@@ -26,14 +26,12 @@ test.describe('default browser cookie clearing', () => {
     await expect(clearButton).toBeEnabled()
 
     // Why: the regression left the button disabled after a successful clear
-    // (#14678) — a single click can't catch that, so clear again. Compare
-    // against the pre-click count rather than a fixed value, since the first
-    // toast may have already auto-dismissed by the time this one appears.
-    const successCountBeforeSecondClick = await successToasts.count()
+    // (#14678) — a single click can't catch that, so clear again. Wait for
+    // the first toast to fully dismiss first, so a stale count can't make
+    // the second wait pass (or race-timeout) on the wrong toast.
+    await expect(successToasts).toHaveCount(0, { timeout: 10_000 })
     await clearButton.click()
-    await expect
-      .poll(() => successToasts.count(), { timeout: 10_000 })
-      .toBeGreaterThan(successCountBeforeSecondClick)
+    await expect(successToasts).toHaveCount(1, { timeout: 10_000 })
     await expect(clearButton).toBeEnabled()
   })
 })

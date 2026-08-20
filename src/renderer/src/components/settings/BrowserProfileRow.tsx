@@ -227,6 +227,10 @@ export function BrowserProfileRow({
             variant="ghost"
             size="icon"
             className="size-7 text-muted-foreground hover:text-destructive"
+            aria-label={translate(
+              'auto.components.settings.BrowserProfileRow.clearDefaultCookies',
+              'Clear default cookies'
+            )}
             data-testid="clear-default-cookies-button"
             onClick={async () => {
               const ok = await useAppStore.getState().clearDefaultSessionCookies()
