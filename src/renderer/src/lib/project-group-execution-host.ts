@@ -1,9 +1,10 @@
-import { parseExecutionHostId, type ExecutionHostId } from '../../../shared/execution-host'
-import type { ProjectGroup } from '../../../shared/project-group-types'
+import type { ExecutionHostId } from '../../../shared/execution-host'
+import { catalogOwnerHostId } from './worktree-runtime-owner-index'
 
-/** Normalizes a project group's stored host field into a routable ExecutionHostId. */
+/** Normalizes an already-selected group or repo's host fields into a routable
+ *  ExecutionHostId, matching catalogOwnerHostId's SSH/local fallback. */
 export function getProjectGroupExecutionHostId(
-  projectGroup: Pick<ProjectGroup, 'executionHostId'> | undefined
+  entry: { executionHostId?: string | null; connectionId?: string | null } | undefined
 ): ExecutionHostId | undefined {
-  return parseExecutionHostId(projectGroup?.executionHostId)?.id ?? undefined
+  return entry ? catalogOwnerHostId(entry) : undefined
 }
