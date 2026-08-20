@@ -3232,16 +3232,20 @@ export const createRepoSlice: StateCreator<AppState, [], [], RepoSlice> = (set, 
       if (groupId && !resolvedGroup) {
         return false
       }
+      // Why: an ungroup (groupId null) still routes to a specific repo host —
+      // honor an explicit hint from the caller instead of only the focused host.
+      const repoHostId = resolvedGroup?.ownerHostId ?? options?.executionHostId
       if (
         !findRepoForHost(get().repos, projectId, {
           settings: get().settings,
-          hostId: resolvedGroup?.ownerHostId
+          hostId: repoHostId
         })
       ) {
         return false
       }
       const target =
-        resolvedGroup?.target ?? getActiveRuntimeTarget(settingsForRepoOwner(get(), projectId))
+        resolvedGroup?.target ??
+        getActiveRuntimeTarget(settingsForRepoOwner(get(), projectId, repoHostId))
       const moved =
         target.kind === 'local'
           ? await window.api.projectGroups.moveProject({

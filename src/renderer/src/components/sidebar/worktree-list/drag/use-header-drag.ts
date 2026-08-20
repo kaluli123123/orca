@@ -5,7 +5,7 @@ import type { ProjectGroup } from '../../../../../../shared/project-group-types'
 import type { ProjectOrderBy } from '../../../../../../shared/ui-chrome-types'
 import type { Repo } from '../../../../../../shared/repo-types'
 import type { ExecutionHostId } from '../../../../../../shared/execution-host'
-import { getProjectGroupExecutionHostId } from '@/lib/project-group-execution-host'
+import { getCatalogEntryExecutionHostId } from '@/lib/catalog-entry-execution-host'
 import type { HostHeaderRow, HostSectionRow } from '../../host-section-rows'
 import type { Row, WorktreeGroupBy } from '../grouping/row-types'
 import type { RenderRow } from '../listing/render-row'
@@ -149,7 +149,7 @@ export function useWorktreeSidebarHeaderDrag(args: {
   const commitProjectGroupOrder = useCallback(
     (repoId: string, projectGroupId: string | null, order: number) => {
       const executionHostId = projectGroupId
-        ? getProjectGroupExecutionHostId(projectGroupByIdForHeaderDrag.get(projectGroupId))
+        ? getCatalogEntryExecutionHostId(projectGroupByIdForHeaderDrag.get(projectGroupId))
         : undefined
       void moveProjectToGroup(repoId, projectGroupId, order, { executionHostId })
     },
@@ -161,7 +161,7 @@ export function useWorktreeSidebarHeaderDrag(args: {
         return
       }
       suppressScrollCorrectionForHeaderCommit()
-      const executionHostId = getProjectGroupExecutionHostId(
+      const executionHostId = getCatalogEntryExecutionHostId(
         projectGroupByIdForHeaderDrag.get(groupId)
       )
       void updateProjectGroup(groupId, { tabOrder }, { executionHostId })
