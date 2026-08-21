@@ -593,6 +593,31 @@ describe('project group deletion store routing', () => {
     expect(reposRemoveForHost).toHaveBeenCalledWith({ repoId: 'dup-repo', hostId: 'local' })
   })
 
+  it('reports missing-group instead of group-delete-failed when the group exists only on a sibling host', async () => {
+    const remoteGroup = { ...projectGroup, executionHostId: 'runtime:env-1' }
+    const store = createTestStore()
+    store.setState({
+      settings: { activeRuntimeEnvironmentId: 'env-1' } as never,
+      projectGroups: [remoteGroup]
+    })
+
+    await expect(
+      store.getState().deleteProjectGroupWithContainedProjects(projectGroup.id, {
+        executionHostId: 'local',
+        removeContainedProjects: false
+      })
+    ).resolves.toEqual({
+      status: 'missing-group',
+      groupId: projectGroup.id,
+      requestedProjectIds: [],
+      removedProjectIds: [],
+      failedProjectRemovals: []
+    })
+
+    expect(projectGroupsDelete).not.toHaveBeenCalled()
+    expect(store.getState().projectGroups).toEqual([remoteGroup])
+  })
+
   it('does not remove contained projects when group deletion fails', async () => {
     projectGroupsDelete.mockResolvedValue(false)
     const groupedRepo = { ...remoteRepo, id: 'direct', projectGroupId: projectGroup.id }

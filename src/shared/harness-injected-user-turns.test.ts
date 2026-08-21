@@ -145,4 +145,15 @@ describe('stripKnownHarnessEnvelope', () => {
       )
     ).toBe('Fix CI config')
   })
+
+  it('strips the attributed <channel source=…> form but keeps a bare <channel> as user content', () => {
+    expect(
+      stripKnownHarnessEnvelope(
+        '<channel source="general">new post</channel>\nExplain the compile error'
+      )
+    ).toBe('Explain the compile error')
+    expect(stripKnownHarnessEnvelope('<channel>general</channel> explain this feed element')).toBe(
+      '<channel>general</channel> explain this feed element'
+    )
+  })
 })
