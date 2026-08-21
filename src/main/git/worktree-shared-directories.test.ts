@@ -1,8 +1,8 @@
 import { execFileSync } from 'node:child_process'
 import { lstatSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
-import { tmpdir } from 'node:os'
+import { devNull, tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   clearConfiguredWorktreeSharedDirectoriesCacheForTests,
   getConfiguredWorktreeSharedDirectories,
@@ -16,23 +16,14 @@ import {
 import { assertWorktreeCleanForRemoval } from './worktree'
 import { getStatus } from './status'
 
-// Why not os.devNull: it is `\\.\nul` on Windows, which Git rejects as a config
-// path. A private mkdtemp dir is what makes this path's absence guaranteed.
-const CONFIG_ISOLATION_DIR = mkdtempSync(join(tmpdir(), 'orca-shared-dirs-noconfig-'))
-const ABSENT_GIT_CONFIG = join(CONFIG_ISOLATION_DIR, 'absent.gitconfig')
-
-afterAll(() => {
-  rmSync(CONFIG_ISOLATION_DIR, { recursive: true, force: true })
-})
-
 const git = (args: string[], cwd: string): void => {
   execFileSync('git', args, {
     cwd,
     stdio: 'ignore',
     env: {
       ...process.env,
-      GIT_CONFIG_GLOBAL: ABSENT_GIT_CONFIG,
-      GIT_CONFIG_SYSTEM: ABSENT_GIT_CONFIG
+      GIT_CONFIG_GLOBAL: devNull,
+      GIT_CONFIG_SYSTEM: devNull
     }
   })
 }
