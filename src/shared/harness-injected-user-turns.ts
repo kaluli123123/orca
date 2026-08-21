@@ -89,12 +89,21 @@ function findMatchingCloseTagEnd(remaining: string, tagName: string): number | n
   return null
 }
 
+// Why: 'channel' is only machinery in its attributed <channel source=…> form,
+// matching HARNESS_INJECTED_TURN_PREFIXES — a bare <channel> is real user content.
+function isKnownHarnessEnvelopeStart(remaining: string, tagName: string): boolean {
+  return (
+    KNOWN_HARNESS_TAG_NAMES.has(tagName) ||
+    (tagName === 'channel' && remaining.toLowerCase().startsWith('<channel source='))
+  )
+}
+
 /** Remove leading known harness XML wrappers while preserving the real prompt after them. */
 export function stripKnownHarnessEnvelope(text: string): string {
   let remaining = text.trim()
   while (remaining) {
     const tagName = LEADING_TAG_NAME.exec(remaining)?.[1]?.toLowerCase()
-    if (!tagName || !KNOWN_HARNESS_TAG_NAMES.has(tagName)) {
+    if (!tagName || !isKnownHarnessEnvelopeStart(remaining, tagName)) {
       break
     }
     const closeTagEnd = findMatchingCloseTagEnd(remaining, tagName)

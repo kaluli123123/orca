@@ -3137,7 +3137,13 @@ export const createRepoSlice: StateCreator<AppState, [], [], RepoSlice> = (set, 
   },
 
   deleteProjectGroupWithContainedProjects: async (groupId, options) => {
-    const groupExists = get().projectGroups.some((group) => group.id === groupId)
+    // Why: scope the existence check to the requested host so a group that only
+    // exists on a sibling host reports missing-group, not group-delete-failed.
+    const groupExists = get().projectGroups.some(
+      (group) =>
+        group.id === groupId &&
+        (!options.executionHostId || catalogOwnerHostId(group) === options.executionHostId)
+    )
     if (!groupExists) {
       return {
         status: 'missing-group',
