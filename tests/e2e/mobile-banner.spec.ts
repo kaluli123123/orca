@@ -89,6 +89,40 @@ test('mobile subscribe mounts overlay; collapse → chip; Take back dismisses', 
   await expect(overlay).toBeHidden({ timeout: 15_000 })
 })
 
+test('browser Take back releases its retained driver state', async ({ orcaPage, electronApp }) => {
+  await waitForSessionReady(orcaPage)
+  const worktreeId = await waitForActiveWorktree(orcaPage)
+  const browserPageId = await orcaPage.evaluate((targetWorktreeId) => {
+    const state = window.__store!.getState()
+    const tab = state.createBrowserTab(targetWorktreeId, 'about:blank', {
+      title: 'Mobile driver test',
+      activate: true
+    })
+    return tab.activePageId
+  }, worktreeId)
+  if (!browserPageId) {
+    throw new Error('Browser page was not created')
+  }
+
+  const addressBar = orcaPage.locator('[data-orca-browser-address-bar="true"]')
+  await expect(addressBar).toBeVisible({ timeout: 15_000 })
+  await sendBrowserMobileDriverIpc(electronApp, { browserPageId })
+
+  const overlay = orcaPage.locator('.mobile-browser-driver-banner')
+  await expect(overlay).toBeVisible({ timeout: 15_000 })
+  await overlay.getByRole('button').click()
+  await expect(overlay).toBeHidden({ timeout: 15_000 })
+  await expect
+    .poll(() =>
+      orcaPage.evaluate(async (targetPageId) => {
+        const drivers = await window.api.runtime.getBrowserDrivers()
+        return drivers.some(({ browserPageId: id }) => id === targetPageId)
+      }, browserPageId)
+    )
+    .toBe(false)
+  await expect(addressBar).toBeEnabled()
+})
+
 test('held phone-fit state mounts restore overlay without collapse', async ({
   orcaPage,
   electronApp
@@ -278,6 +312,20 @@ async function sendMobileSubscribeIpc(
       })
       win.webContents.send('runtime:terminalDriverChanged', {
         ptyId: payload.ptyId,
+        driver: { kind: 'mobile', clientId: 'fake-phone-1' }
+      })
+    }
+  }, args)
+}
+
+async function sendBrowserMobileDriverIpc(
+  electronApp: ElectronApplication,
+  args: { browserPageId: string }
+): Promise<void> {
+  await electronApp.evaluate(({ BrowserWindow }, payload) => {
+    for (const win of BrowserWindow.getAllWindows()) {
+      win.webContents.send('runtime:browserDriverChanged', {
+        browserPageId: payload.browserPageId,
         driver: { kind: 'mobile', clientId: 'fake-phone-1' }
       })
     }

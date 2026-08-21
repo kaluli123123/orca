@@ -14966,7 +14966,7 @@ export class OrcaRuntimeService {
         return
       }
     }
-    if (next.kind === 'idle') {
+    if (next.kind !== 'mobile') {
       this.currentBrowserDriver.delete(browserPageId)
     } else {
       this.currentBrowserDriver.set(browserPageId, next)
