@@ -299,10 +299,16 @@ export function ingestRgJsonLine(
  *
  * Why: bare git pathspecs only match the repo root, so wrap with `:(glob)` and prepend `**\/` to replicate rg's recursive-by-default globbing.
  */
-export function toGitGlobPathspec(glob: string, exclude?: boolean): string {
-  const needsRecursive = !glob.includes('/')
-  const pattern = needsRecursive ? `**/${glob}` : glob
-  return exclude ? `:(exclude,glob)${pattern}` : `:(glob)${pattern}`
+export function toGitGlobPathspecs(glob: string, exclude?: boolean): string[] {
+  const trimmed = glob.replace(/\/+$/, '')
+  if (!trimmed) {
+    return []
+  }
+  const pattern = trimmed.includes('/') ? trimmed : `**/${trimmed}`
+  const magic = exclude ? ':(exclude,glob)' : ':(glob)'
+  // Why the second form: `:(glob)` is FNM_PATHNAME, so a bare directory name matches
+  // that entry alone while rg's --glob takes the whole subtree with it.
+  return [`${magic}${pattern}`, `${magic}${pattern}/**`]
 }
 
 export function buildGitGrepArgs(query: string, opts: SearchOptionsLike): string[] {
@@ -335,14 +341,16 @@ export function buildGitGrepArgs(query: string, opts: SearchOptionsLike): string
   let hasPathspecs = false
   if (opts.includePattern) {
     for (const pat of splitSearchGlobPatterns(opts.includePattern)) {
-      gitArgs.push(toGitGlobPathspec(pat))
-      hasPathspecs = true
+      const pathspecs = toGitGlobPathspecs(pat)
+      gitArgs.push(...pathspecs)
+      hasPathspecs ||= pathspecs.length > 0
     }
   }
   if (opts.excludePattern) {
     for (const pat of splitSearchGlobPatterns(opts.excludePattern)) {
-      gitArgs.push(toGitGlobPathspec(pat, true))
-      hasPathspecs = true
+      const pathspecs = toGitGlobPathspecs(pat, true)
+      gitArgs.push(...pathspecs)
+      hasPathspecs ||= pathspecs.length > 0
     }
   }
   // Why: git grep needs a pathspec to search the working tree; '.' means everything under cwd.
