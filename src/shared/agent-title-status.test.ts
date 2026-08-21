@@ -9,6 +9,10 @@ describe('detectAgentStatusFromTitle permission matching', () => {
     expect(detectAgentStatusFromTitle('Claude done — ~/work/permissions-audit')).toBe('idle')
     expect(detectAgentStatusFromTitle('Claude working — /home/u/awaiting-review')).toBe('working')
     expect(detectAgentStatusFromTitle('Claude working — C:\\src\\permissions')).toBe('working')
+    // Why both ends: `permissions/` is a common directory name, so the keyword
+    // lands at the start of a path segment too, not only at its end.
+    expect(detectAgentStatusFromTitle('Claude ready — permissions/foo')).toBe('idle')
+    expect(detectAgentStatusFromTitle('Claude ready — permissions\\foo')).toBe('idle')
   })
 
   it('still reads a real permission prompt', () => {
