@@ -6,3 +6,18 @@
 export function normalizeSshConfigAlias(alias: string | null | undefined): string {
   return alias ? alias.trim().toLowerCase() : ''
 }
+
+/** The machine a target actually reaches: hostname, port and user, normalized.
+ *  Empty when the host is unknown, so an unresolved alias never collides. */
+export function sshEndpointIdentity(target: {
+  host?: string | null
+  port?: number | null
+  username?: string | null
+}): string {
+  const host = target.host?.trim().toLowerCase() ?? ''
+  if (!host) {
+    return ''
+  }
+  const port = typeof target.port === 'number' && Number.isFinite(target.port) ? target.port : 22
+  return `${host}\u0000${port}\u0000${target.username?.trim().toLowerCase() ?? ''}`
+}
