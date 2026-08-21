@@ -280,10 +280,8 @@ describeBinaryCompatibility('real Git binary compatibility', () => {
       runGit(['show', '--end-of-options', `${pinnedOid}:absent.txt`])
     ).rejects.toBeDefined()
   })
-  // Why pin this: %(decorate:…) is Git 2.43+, and an older Git does not fail on
-  // it — it echoes the placeholder and exits zero, which silently emptied every
-  // commit's ref badges (#15507). The same record carries %D so both sides of
-  // the boundary resolve decorations; this asserts the echo AND the recovery.
+  // Why pin this: an older Git echoes %(decorate:…) and exits zero, so only %D
+  // in the same record carries the badges (#15507). Asserts the echo and the recovery.
   it('reads commit decorations on both sides of the %(decorate:...) boundary', async () => {
     await writeFile(join(repoPath, 'decorated.txt'), 'decorated\n')
     await runGit(['add', 'decorated.txt'])

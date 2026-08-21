@@ -4,16 +4,11 @@ import { iterateNulDelimitedFields } from './nul-delimited-fields'
 const GIT_HISTORY_DECORATION_SEPARATOR = '\x1f'
 const GIT_HISTORY_LEGACY_DECORATION_SEPARATOR = ','
 
-// Why: %(decorate:…) is Git 2.43+; below that Git prints the placeholder
-// verbatim and exits zero, so the same record also carries %D (Git 2.10+) as a
-// comma-separated fallback. Prefer %(decorate:…) — its separator survives the
-// commas Git permits inside ref names.
+// Why %D too: %(decorate:…) is Git 2.43+, and older Git echoes it verbatim and exits zero.
 export const GIT_HISTORY_COMMIT_FORMAT =
   '%H%n%aN%n%aE%n%at%n%ct%n%P%n%(decorate:prefix=,suffix=,separator=%x1f)%n%D%n%B'
 
-// Why: an old Git echoes the placeholder with %x1f already expanded. No ref
-// name may contain a control character, so an exact match is an unambiguous
-// "this Git predates %(decorate:…)" cue rather than a prefix guess.
+// Why exact-match: no ref name may contain the \x1f an old Git echoes here.
 const UNEXPANDED_DECORATE_PLACEHOLDER = `%(decorate:prefix=,suffix=,separator=${GIT_HISTORY_DECORATION_SEPARATOR})`
 
 export function shortGitHash(hash: string): string {
@@ -35,9 +30,7 @@ function parseGitDecorationRefs(
   }
 
   const refs: GitHistoryItemRef[] = []
-  // Why: the separator comes from which field produced `raw`, never from
-  // sniffing its content — a commit with a single decoration carries no
-  // separator at all, and guessing split `feat,one` into two bogus refs.
+  // Why passed in: a lone decoration carries no separator, so sniffing `raw` split `feat,one`.
   const parts = raw.split(separator)
 
   for (const part of parts) {
