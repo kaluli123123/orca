@@ -41,10 +41,8 @@ describe('selectSleepingRecordParkExemptTabIds', () => {
   })
 
   it('exempts nothing for a paneKey with no delimiter', () => {
-    // Why: slice(0, indexOf(':')) on a key with no ":" is slice(0, -1) — it
-    // truncated the last character into a tab id that owns nothing, so the tab
-    // that really holds the sleeping record got parked and could never
-    // cold-restore. Every other paneKey→tabId reader guards with `<= 0`.
+    // Why: slice(0, indexOf(':')) with no ":" is slice(0, -1) — a truncated tab id
+    // that owns nothing, so the tab really holding the record got parked.
     const records = { 'orphan-pane-key': sleepingRecord({ paneKey: 'orphan-pane-key' }) }
 
     const exempt = selectSleepingRecordParkExemptTabIds(records, 'wt-1')

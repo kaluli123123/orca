@@ -125,8 +125,7 @@ describe('git history parsing', () => {
   })
 
   it('falls back to %D decorations when Git predates the %(decorate:…) placeholder', () => {
-    // Why: Git < 2.43 has no %(decorate:…) — it prints the placeholder verbatim
-    // and exits zero, so every commit silently lost its ref badges (#15507).
+    // Why: Git < 2.43 echoes the placeholder and exits zero (#15507).
     const stdout = logRecord({
       hash: HEAD_OID,
       decorations: `%(decorate:prefix=,suffix=,separator=${DECORATION_SEPARATOR})`,
@@ -144,8 +143,7 @@ describe('git history parsing', () => {
   })
 
   it('keeps a comma inside a lone decoration, which carries no separator', () => {
-    // Why: real Git emits no separator when a commit has exactly one
-    // decoration, so sniffing the content for \x1f split `feat,one` in two.
+    // Why: a lone decoration carries no separator, so sniffing for \x1f split it in two.
     const stdout = logRecord({
       hash: HEAD_OID,
       decorations: 'HEAD -> refs/heads/feat,one',

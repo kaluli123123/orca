@@ -20,10 +20,7 @@ export function selectSleepingRecordParkExemptTabIds(
     if (record.automaticResumeBlockedBy || isPassiveCompletedHibernationEvidence(record)) {
       continue
     }
-    // Why the parsers, not slice(0, indexOf(':')): a paneKey with no delimiter
-    // made that slice(0, -1), truncating the last character into a tab id that
-    // owns nothing — so the tab actually holding the record got parked and
-    // could never cold-restore. Both parsers reject a malformed key outright.
+    // Why the parsers: a delimiter-less paneKey must yield no tab id, not a truncated one.
     const tabId =
       record.tabId ??
       parsePaneKey(record.paneKey)?.tabId ??
