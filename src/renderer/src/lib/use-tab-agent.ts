@@ -277,8 +277,10 @@ export function useTabAgent(tab: TerminalTab): TuiAgent | null {
     }
     const explicitTitleAgent = resolveExplicitTerminalTitleAgentType(tab.title)
     // Why: only a title naming the launched agent arms its exit clearing — sibling/other-agent evidence must not.
+    // A title that only mentions the launch agent's name in task text (not its own identity
+    // frame) must not count either, or that mention alone can later clear a live launchAgent.
     const fallbackAgentSignal = tab.launchAgent
-      ? explicitTitleAgent === tab.launchAgent
+      ? explicitTitleAgent === tab.launchAgent && titlePresentsAgent(tab.title, tab.launchAgent)
       : Boolean(explicitTitleAgent || siblingHookAgent)
     // Why: a recognized foreground process arms exit clearing even for agents with no hook or title integration.
     if (focusedHookAgent || completedHookEvidence || processAgent || fallbackAgentSignal) {
