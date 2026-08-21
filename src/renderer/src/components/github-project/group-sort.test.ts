@@ -228,8 +228,7 @@ describe('sortRows', () => {
   })
 
   it('sorts an empty user list last in both directions, like a missing value', () => {
-    // Why: the DESC flip used to negate the empty-list branch's `cmp = 1`,
-    // sending unassigned rows to the top while missing-value rows stayed last.
+    // Why: the DESC flip negated the empty branch, sending unassigned rows to the top.
     const rows = [
       makeRow('empty-list', 0, {
         F_assignees: { kind: 'users', fieldId: 'F_assignees', users: [] }
@@ -274,9 +273,7 @@ describe('sortRows', () => {
   })
 
   it('sorts a blank text value last in both directions, like a missing value', () => {
-    // Why: the normalizer turns a null GitHub text/date into '', which
-    // localeCompare sorts to the very top ascending while a genuinely missing
-    // value sorts last — the same empty-at-both-ends split.
+    // Why reachable: the normalizer turns a null GitHub text/date into ''.
     const rows = [
       makeRow('blank', 0, { F_text: { kind: 'text', fieldId: 'F_text', text: '' } }),
       makeRow('alpha', 1, { F_text: { kind: 'text', fieldId: 'F_text', text: 'alpha' } }),
@@ -305,9 +302,7 @@ describe('sortRows', () => {
 
 describe('groupRows', () => {
   it('groups a present-but-empty user list with the missing-value rows', () => {
-    // Why: an empty list fell through to deriveStringValue → key 'raw:' with a
-    // blank label, which sorts first and renders as the literal header "All",
-    // splitting unassigned rows across a phantom group and "No Assignees".
+    // Why: an empty list fell through to a blank-label group, which renders as "All".
     const view = { ...makeView(assigneesField), groupByFields: [assigneesField] }
     const rows = [
       makeRow('empty-list', 0, {

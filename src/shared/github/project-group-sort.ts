@@ -26,10 +26,7 @@ const EMPTY_GROUP_KEY = '__empty__'
 
 type ProjectFieldValue = GitHubProjectRow['fieldValuesByFieldId'][string]
 
-/** False for anything that renders as an empty cell: an absent value, and a
- *  present one whose payload is blank — the normalizer turns a null text/date
- *  into '' and dropped users/labels into []. All of them must group and sort
- *  with the missing-value rows, in both directions. */
+/** False for anything that renders as an empty cell — absent, or present with a blank payload. */
 function hasNonEmptyFieldValue(value: ProjectFieldValue | undefined): value is ProjectFieldValue {
   if (!value) {
     return false
@@ -168,9 +165,7 @@ function compareSort(a: GitHubProjectRow, b: GitHubProjectRow, sort: GitHubProje
   const field = sort.field
   const aValue = a.fieldValuesByFieldId[field.id]
   const bValue = b.fieldValuesByFieldId[field.id]
-  // Why: return before the trailing DESC flip so empty sorts last in both
-  // directions — negating it would split visually identical empty cells
-  // across both ends of the same table.
+  // Why: return before the trailing DESC flip so empty sorts last in both directions.
   const aFilled = hasNonEmptyFieldValue(aValue)
   const bFilled = hasNonEmptyFieldValue(bValue)
   if (!aFilled || !bFilled) {
