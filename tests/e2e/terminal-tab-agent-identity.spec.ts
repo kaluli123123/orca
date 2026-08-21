@@ -65,26 +65,28 @@ test('Claude task titles that mention Codex keep the Claude tab icon', async ({ 
   const claude = await openClaudeTab(orcaPage, worktreeId)
   const claudeScript = await runNodeScriptInTerminal(orcaPage, claude.ptyId, oscTitleHolderScript())
 
-  await waitForTerminalOutput(orcaPage, CLAUDE_IDENTITY_MARKER, 15_000)
-  await expect
-    .poll(() => paneTitles(orcaPage, claude.tabId), {
-      timeout: 15_000,
-      message: 'the Claude identity title never reached the renderer'
-    })
-    .toContain(CLAUDE_IDENTITY_OSC_TITLE)
+  try {
+    await waitForTerminalOutput(orcaPage, CLAUDE_IDENTITY_MARKER, 15_000)
+    await expect
+      .poll(() => paneTitles(orcaPage, claude.tabId), {
+        timeout: 15_000,
+        message: 'the Claude identity title never reached the renderer'
+      })
+      .toContain(CLAUDE_IDENTITY_OSC_TITLE)
 
-  await sendToTerminal(orcaPage, claude.ptyId, '\r')
-  await waitForTerminalOutput(orcaPage, PANE_HOLD_MARKER, 15_000)
-  await expect
-    .poll(() => paneTitles(orcaPage, claude.tabId), {
-      timeout: 15_000,
-      message: 'the Claude task title never reached the renderer'
-    })
-    .toContain(CLAUDE_TASK_OSC_TITLE)
+    await sendToTerminal(orcaPage, claude.ptyId, '\r')
+    await waitForTerminalOutput(orcaPage, PANE_HOLD_MARKER, 15_000)
+    await expect
+      .poll(() => paneTitles(orcaPage, claude.tabId), {
+        timeout: 15_000,
+        message: 'the Claude task title never reached the renderer'
+      })
+      .toContain(CLAUDE_TASK_OSC_TITLE)
 
-  const claudeTab = orcaPage.locator(`[data-tab-id="${claude.tabId}"]`)
-  await expect(claudeTab.locator('[data-agent-icon="claude"]')).toBeVisible()
-  await expect(claudeTab.locator('[data-agent-icon="codex"]')).toHaveCount(0)
-
-  claudeScript.cleanup()
+    const claudeTab = orcaPage.locator(`[data-tab-id="${claude.tabId}"]`)
+    await expect(claudeTab.locator('[data-agent-icon="claude"]')).toBeVisible()
+    await expect(claudeTab.locator('[data-agent-icon="codex"]')).toHaveCount(0)
+  } finally {
+    claudeScript.cleanup()
+  }
 })
