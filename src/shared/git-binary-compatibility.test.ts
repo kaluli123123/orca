@@ -1,5 +1,5 @@
 import { execFile } from 'node:child_process'
-import { mkdtemp, rename, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, rename, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { promisify } from 'node:util'
@@ -14,6 +14,7 @@ import {
   isUnsupportedWorktreeListZError
 } from './git-worktree-command-capabilities'
 import { gitCredentialPromptGuardEnv } from './git-credential-prompt-env'
+import { buildGitGrepArgs } from './text-search'
 import {
   githubPullRequestHeadLocalRef,
   gitlabMergeRequestHeadLocalRef,
@@ -278,5 +279,30 @@ describeBinaryCompatibility('real Git binary compatibility', () => {
     await expect(
       runGit(['show', '--end-of-options', `${pinnedOid}:absent.txt`])
     ).rejects.toBeDefined()
+  })
+  // Why pin this: `:(glob)` is FNM_PATHNAME on every Git, so a bare directory name
+  // matches that entry alone — the git-grep fallback then ignored an exclude that
+  // ripgrep honours. Both pathspec forms must reach the real binary.
+  it('excludes and includes a directory subtree through the generated pathspecs', async () => {
+    await mkdir(join(repoPath, 'vendored'), { recursive: true })
+    await writeFile(join(repoPath, 'vendored', 'inner.txt'), 'pathspecneedle\n')
+    await writeFile(join(repoPath, 'kept.txt'), 'pathspecneedle\n')
+    await runGit(['add', '-A'])
+    await runGit(['commit', '-qm', 'pathspec fixture'])
+
+    const listFiles = async (opts: Parameters<typeof buildGitGrepArgs>[1]): Promise<string[]> => {
+      const args = buildGitGrepArgs('pathspecneedle', opts).map((arg) =>
+        arg === '-n' ? '-l' : arg
+      )
+      const { stdout } = await runGit(args)
+      return stdout.split(/[\0\n]/).filter(Boolean)
+    }
+
+    const excluded = await listFiles({ excludePattern: 'vendored' })
+    expect(excluded).toContain('kept.txt')
+    expect(excluded.some((file) => file.startsWith('vendored/'))).toBe(false)
+
+    const included = await listFiles({ includePattern: 'vendored' })
+    expect(included).toEqual(['vendored/inner.txt'])
   })
 })

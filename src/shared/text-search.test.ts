@@ -15,7 +15,7 @@ import {
   normalizeRelativePath,
   SEARCH_JSON_STRUCTURE_LIMITS,
   splitSearchGlobPatterns,
-  toGitGlobPathspec
+  toGitGlobPathspecs
 } from './text-search'
 
 describe('normalizeRelativePath', () => {
@@ -240,6 +240,18 @@ describe('buildGitGrepArgs', () => {
     expect(args).toContain(':(exclude,glob)dist/**')
   })
 
+  it('excludes a directory subtree the way rg --glob does', () => {
+    const args = buildGitGrepArgs('q', { excludePattern: 'node_modules' })
+    expect(args).toContain(':(exclude,glob)**/node_modules')
+    expect(args).toContain(':(exclude,glob)**/node_modules/**')
+  })
+
+  it('includes a directory subtree the way rg --glob does', () => {
+    const args = buildGitGrepArgs('q', { includePattern: 'src' })
+    expect(args).toContain(':(glob)**/src')
+    expect(args).toContain(':(glob)**/src/**')
+  })
+
   it('keeps escaped commas inside one generated folder pathspec', () => {
     const args = buildGitGrepArgs('q', { includePattern: 'foo\\,bar/**, *.ts' })
     expect(args).toContain(':(glob)foo\\,bar/**')
@@ -247,11 +259,33 @@ describe('buildGitGrepArgs', () => {
   })
 })
 
-describe('toGitGlobPathspec', () => {
+describe('toGitGlobPathspecs', () => {
   it('wraps bare globs with **/ to match recursively', () => {
-    expect(toGitGlobPathspec('*.ts')).toBe(':(glob)**/*.ts')
-    expect(toGitGlobPathspec('src/*.ts')).toBe(':(glob)src/*.ts')
-    expect(toGitGlobPathspec('*.ts', true)).toBe(':(exclude,glob)**/*.ts')
+    expect(toGitGlobPathspecs('*.ts')).toContain(':(glob)**/*.ts')
+    expect(toGitGlobPathspecs('src/*.ts')).toContain(':(glob)src/*.ts')
+    expect(toGitGlobPathspecs('*.ts', true)).toContain(':(exclude,glob)**/*.ts')
+  })
+
+  // Why: `:(glob)` is FNM_PATHNAME, so a bare directory name matches the directory
+  // entry alone — rg's --glob excludes the whole subtree. Emit both forms.
+  it('also covers the subtree so a directory name behaves like rg --glob', () => {
+    expect(toGitGlobPathspecs('node_modules', true)).toEqual([
+      ':(exclude,glob)**/node_modules',
+      ':(exclude,glob)**/node_modules/**'
+    ])
+    expect(toGitGlobPathspecs('src')).toEqual([':(glob)**/src', ':(glob)**/src/**'])
+    expect(toGitGlobPathspecs('build/out')).toEqual([':(glob)build/out', ':(glob)build/out/**'])
+  })
+
+  it('does not emit a double slash for a trailing-slash directory pattern', () => {
+    expect(toGitGlobPathspecs('node_modules/', true)).toEqual([
+      ':(exclude,glob)**/node_modules',
+      ':(exclude,glob)**/node_modules/**'
+    ])
+  })
+
+  it('drops a pattern that is only separators', () => {
+    expect(toGitGlobPathspecs('/')).toEqual([])
   })
 })
 
