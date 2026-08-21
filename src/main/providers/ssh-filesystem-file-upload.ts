@@ -14,6 +14,19 @@ export type SshRawTransferOptions = {
   ) => Promise<void>
 }
 
+async function guardSftpOperation<T>(sftp: SFTPWrapper, operation: () => Promise<T>): Promise<T> {
+  let onSftpError!: (error: Error) => void
+  const sftpError = new Promise<never>((_resolve, reject) => {
+    onSftpError = (error: Error): void => reject(error)
+    sftp.prependOnceListener('error', onSftpError)
+  })
+  try {
+    return await Promise.race([operation(), sftpError])
+  } finally {
+    sftp.removeListener('error', onSftpError)
+  }
+}
+
 export async function openSshFileUploadSession(
   createSftp?: SftpFactory,
   rawTransfer?: SshRawTransferOptions
@@ -25,11 +38,21 @@ export async function openSshFileUploadSession(
     throw new Error('Remote file upload is unavailable. Reconnect the SSH target and retry.')
   }
   const sftp = await createSftp()
+  const swallowLateSftpError = (): void => {}
+  let sftpEndRequested = false
+  const endSftp = (): void => {
+    if (!sftpEndRequested) {
+      sftpEndRequested = true
+      sftp.end()
+    }
+  }
+  sftp.on('error', swallowLateSftpError)
+  sftp.once('close', () => sftp.removeListener('error', swallowLateSftpError))
   return {
     // Why: one session covers the whole import so normal SSH keeps its prior
     // channel count even when a directory contains many files.
     uploadFile: (sourcePath, destinationPath, options) =>
-      uploadFileViaSftp(sftp, sourcePath, destinationPath, options),
-    close: () => sftp.end()
+      guardSftpOperation(sftp, () => uploadFileViaSftp(sftp, sourcePath, destinationPath, options)),
+    close: endSftp
   }
 }
