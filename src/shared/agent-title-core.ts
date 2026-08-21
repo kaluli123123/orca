@@ -49,10 +49,12 @@ const STRONG_PERMISSION_KEYWORDS = [
   'waiting'
 ] as const
 
-// Why: same boundary as the idle matcher — a bare substring read `~/repo/permissions`
-// and `awaiting-review` as a permission prompt, outranking the title's own status word.
+// Why: a bare substring read `~/repo/permissions` and `awaiting-review` as a permission
+// prompt, outranking the title's own status word. The right side also blocks path
+// separators, which the idle matcher does not need: `permissions/` is a common directory
+// name, so the keyword shows up at the *start* of a path segment too, not only its end.
 export const STRONG_PERMISSION_KEYWORDS_RE = new RegExp(
-  `(?<![\\w./\\\\-])(${STRONG_PERMISSION_KEYWORDS.join('|')})(?![\\w\\-])`,
+  `(?<![\\w./\\\\-])(${STRONG_PERMISSION_KEYWORDS.join('|')})(?![\\w/\\\\-])`,
   'i'
 )
 
