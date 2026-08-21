@@ -42,6 +42,20 @@ export const STRONG_WORKING_KEYWORDS_RE = new RegExp(
 
 export const STRONG_WORKING_KEYWORDS_RE_GLOBAL = new RegExp(STRONG_WORKING_KEYWORDS_RE.source, 'gi')
 
+const STRONG_PERMISSION_KEYWORDS = [
+  'action required',
+  'permissions',
+  'permission',
+  'waiting'
+] as const
+
+// Why: same boundary as the idle matcher — a bare substring read `~/repo/permissions`
+// and `awaiting-review` as a permission prompt, outranking the title's own status word.
+export const STRONG_PERMISSION_KEYWORDS_RE = new RegExp(
+  `(?<![\\w./\\\\-])(${STRONG_PERMISSION_KEYWORDS.join('|')})(?![\\w\\-])`,
+  'i'
+)
+
 export const CURSOR_NATIVE_TITLE_LOWER = 'cursor agent'
 
 // eslint-disable-next-line no-control-regex -- intentional unicode range
