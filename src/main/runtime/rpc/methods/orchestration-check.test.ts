@@ -232,6 +232,27 @@ describe('orchestration RPC methods', () => {
       expect(db.getUnreadMessages(`run:${activeRunId}`)).toHaveLength(1)
     })
 
+    it('names the id-kind mismatch when --ack is given a message id', async () => {
+      // Why: the only id a caller sees while reading the message list is the
+      // message id, so reporting Run scope sends them hunting the wrong axis.
+      setup()
+      db.insertMessage({
+        from: 'worker',
+        to: `run:${activeRunId}`,
+        subject: 'queued',
+        runId: activeRunId
+      })
+      const [queued] = db.getUnreadMessages(`run:${activeRunId}`)
+
+      await expect(
+        call('orchestration.check', { terminal: 'term_coord', ack: queued.id })
+      ).rejects.toMatchObject({
+        code: 'stale_delivery',
+        message: expect.stringContaining('deliveryId')
+      })
+      expect(db.getUnreadMessages(`run:${activeRunId}`)).toHaveLength(1)
+    })
+
     it('acknowledges a Run Delivery before returning --peek history', async () => {
       setup()
       db.insertMessage({
