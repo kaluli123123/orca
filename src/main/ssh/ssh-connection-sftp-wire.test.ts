@@ -19,6 +19,11 @@ const SFTP_OPEN_WRITE = 2
 const SFTP_STATUS_OK = 0
 const SFTP_STATUS_NO_SUCH_FILE = 2
 const SFTP_STATUS_FAILURE = 4
+const SFTP_RESPONSE_HANDLE = 102
+
+type SftpWireServerOptions = {
+  malformedHandleOnOpen?: boolean
+}
 
 type SftpWireServer = {
   port: number
@@ -58,7 +63,24 @@ function fileId(handle: Buffer, files: Map<number, OpenFile>): number | null {
   return files.has(id) ? id : null
 }
 
-function installSftpHandlers(sftp: SFTPWrapper, backingRoot: string, operations: string[]): void {
+function sendMalformedHandle(sftp: SFTPWrapper, requestId: number): void {
+  const packet = Buffer.alloc(9)
+  packet.writeUInt32BE(5, 0)
+  packet[4] = SFTP_RESPONSE_HANDLE
+  packet.writeUInt32BE(requestId, 5)
+  const wire = sftp as unknown as {
+    _protocol: { channelData: (channelId: number, data: Buffer) => void }
+    outgoing: { id: number }
+  }
+  wire._protocol.channelData(wire.outgoing.id, packet)
+}
+
+function installSftpHandlers(
+  sftp: SFTPWrapper,
+  backingRoot: string,
+  operations: string[],
+  options?: SftpWireServerOptions
+): void {
   const files = new Map<number, OpenFile>()
   let nextFileId = 0
   sftp.on('error', () => {})
@@ -110,6 +132,10 @@ function installSftpHandlers(sftp: SFTPWrapper, backingRoot: string, operations:
   })
   sftp.on('OPEN', (requestId, remotePath, flags) => {
     operations.push(`OPEN:${remotePath}`)
+    if (options?.malformedHandleOnOpen) {
+      sendMalformedHandle(sftp, requestId)
+      return
+    }
     const localPath = backingPath(backingRoot, remotePath)
     if (!localPath || !(flags & SFTP_OPEN_WRITE)) {
       sftp.status(requestId, SFTP_STATUS_NO_SUCH_FILE)
@@ -157,7 +183,10 @@ function installSftpHandlers(sftp: SFTPWrapper, backingRoot: string, operations:
   })
 }
 
-async function startSftpWireServer(backingRoot: string): Promise<SftpWireServer> {
+async function startSftpWireServer(
+  backingRoot: string,
+  options?: SftpWireServerOptions
+): Promise<SftpWireServer> {
   const operations: string[] = []
   const connections = new Set<Connection>()
   // Ed25519 keygen can produce an invalid 31-byte key; ECDSA points always start with 0x04.
@@ -181,7 +210,7 @@ async function startSftpWireServer(backingRoot: string): Promise<SftpWireServer>
       connection.on('session', (accept) => {
         const session = accept()
         session.on('sftp', (acceptSftp) => {
-          installSftpHandlers(acceptSftp(), backingRoot, operations)
+          installSftpHandlers(acceptSftp(), backingRoot, operations, options)
         })
       })
     })
@@ -279,7 +308,8 @@ async function withSplitNamespaceFixture(
     connection: SshConnection
     fixture: SftpWireServer
     backingRelayDir: string
-  }) => Promise<void>
+  }) => Promise<void>,
+  options?: SftpWireServerOptions
 ): Promise<void> {
   const backingRoot = await mkdtemp(join(tmpdir(), 'orca-sftp-wire-remote-'))
   const backingRelayDir = join(backingRoot, ...RELAY_DIR.split('/'))
@@ -289,7 +319,7 @@ async function withSplitNamespaceFixture(
   let fixture: SftpWireServer | undefined
   let client: Client | undefined
   try {
-    fixture = await startSftpWireServer(backingRoot)
+    fixture = await startSftpWireServer(backingRoot, options)
     client = await connectSshClient(fixture.port)
     await run({
       connection: connectionWithClient(client),
@@ -360,4 +390,20 @@ it('writes a mapped file through a verified split namespace over a real ssh2 SFT
     // Shell-namespace path must never be opened for a confirmed split write.
     expect(fixture.operations).not.toContain(`OPEN:${shellFilePath}`)
   })
+}, 15_000)
+
+it('rejects writeBuffer when the server sends a fatal SFTP protocol error', async () => {
+  await withSplitNamespaceFixture(
+    async ({ connection, fixture }) => {
+      await expect(
+        boundedTransfer(
+          connection.writeBuffer(`${SFTP_HOME}/fatal.bin`, Buffer.from('payload')),
+          fixture.operations,
+          'writeBuffer fatal error'
+        )
+      ).rejects.toThrow('Malformed HANDLE packet')
+      expect(fixture.operations).toContain(`OPEN:${SFTP_HOME}/fatal.bin`)
+    },
+    { malformedHandleOnOpen: true }
+  )
 }, 15_000)
