@@ -34865,6 +34865,15 @@ describe('OrcaRuntimeService', () => {
     expect(createTab).toHaveBeenCalledWith(expect.objectContaining({ url: 'https://example.com' }))
   })
 
+  it('does not retain desktop browser drivers after take back', () => {
+    const runtime = createRuntime()
+
+    runtime.reclaimBrowserForDesktop('closed-page-1')
+    runtime.reclaimBrowserForDesktop('closed-page-2')
+
+    expect(runtime.getAllBrowserDrivers()).toEqual(new Map())
+  })
+
   it('cancels an in-flight same-connection browser screencast before replacing it', async () => {
     const runtime = createRuntime()
     const firstStart = deferred<{
