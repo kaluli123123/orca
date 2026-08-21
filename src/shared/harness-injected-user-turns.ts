@@ -70,12 +70,8 @@ export function isKnownHarnessInjectedUserTurnText(text: string): boolean {
   return HARNESS_INJECTED_TURN_PREFIXES.some((prefix) => normalized.startsWith(prefix))
 }
 
-// Why: content can nest another instance of the same tag (e.g. a bash-output
-// capture echoing raw hook text), so the matching close must track depth.
+// Why: nested same-tag content needs depth tracking; a single linear scan avoids quadratic rescans.
 function findMatchingCloseTagEnd(remaining: string, tagName: string): number | null {
-  // Why: one alternation scanned in a single forward pass — two separate
-  // regexes re-searching from each nested open tag is quadratic on deeply
-  // nested same-tag content.
   const tagRe = new RegExp(`<(?:(/)${tagName}>|${tagName}(?=[\\s>]|$))`, 'gi')
   let depth = 1
   tagRe.lastIndex = 1
