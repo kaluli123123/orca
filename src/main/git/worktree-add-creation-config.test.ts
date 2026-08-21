@@ -84,8 +84,12 @@ describe('addWorktree', () => {
     ])
   })
 
-  it('checks out a selected existing local branch without creating a new branch', async () => {
+  // #15645: claiming an existing branch skips branch.<name>.base (not a new branch) but must still
+  // leave the worktree pushable — without autoSetupRemote the claimed branch has no upstream at all.
+  it('checks out a selected existing local branch without creating a new branch, and still enables push.autoSetupRemote', async () => {
     gitExecFileAsyncMock.mockResolvedValueOnce({ stdout: '' }) // worktree add
+    gitExecFileAsyncMock.mockRejectedValueOnce(Object.assign(new Error('key unset'), { code: 1 })) // config --get push.autoSetupRemote (unset)
+    gitExecFileAsyncMock.mockResolvedValueOnce({ stdout: '' }) // config --local set push.autoSetupRemote
 
     await addWorktree('/repo', '/repo-feature', 'feature/test', 'feature/test', false, false, {
       checkoutExistingBranch: true
@@ -95,7 +99,9 @@ describe('addWorktree', () => {
       [
         ['worktree', 'add', '/repo-feature', 'feature/test'],
         { cwd: '/repo', timeout: WORKTREE_ADD_TIMEOUT_MS }
-      ]
+      ],
+      [['config', '--get', 'push.autoSetupRemote'], { cwd: '/repo-feature' }],
+      [['config', '--local', 'push.autoSetupRemote', 'true'], { cwd: '/repo-feature' }]
     ])
   })
 
