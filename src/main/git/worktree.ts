@@ -964,6 +964,42 @@ export async function addWorktree(
   }
 }
 
+// SSH parity gap (known follow-up, out of scope here): this fix covers only local addWorktree's
+// claim path. Relay's addWorktreeOp (src/relay/git-handler-worktree-ops.ts) still early-returns on
+// its checkoutExistingBranch branch before reaching the equivalent block, so remote claims skip it.
+// Why: --no-track leaves no upstream until first push; push.autoSetupRemote=true lets a plain
+// `git push` create+set origin/<branch> (git >=2.37; older clients ignore it). `--local` on a
+// linked worktree writes the shared common-dir config (whole repo) — intentional and idempotent,
+// so it's warn-only and not rolled back on failure.
+async function ensurePushAutoSetupRemote(
+  worktreePath: string,
+  options: AddWorktreeOptions
+): Promise<void> {
+  try {
+    // Why: `--get` (not `--local --get`) so a value at any scope counts as "user already chose" and isn't overwritten.
+    let alreadySet = false
+    try {
+      await gitExecFileAsync(['config', '--get', 'push.autoSetupRemote'], {
+        ...gitExecOptions(worktreePath, options)
+      })
+      alreadySet = true
+    } catch (readError) {
+      // Why: `git config --get` exits 1 only when unset at every scope; any other code is a real read failure — rethrow rather than overwrite the user's value.
+      const code = (readError as { code?: unknown })?.code
+      if (code !== 1) {
+        throw readError
+      }
+    }
+    if (!alreadySet) {
+      await gitExecFileAsync(['config', '--local', 'push.autoSetupRemote', 'true'], {
+        ...gitExecOptions(worktreePath, options)
+      })
+    }
+  } catch (error) {
+    console.warn(`addWorktree: failed to set push.autoSetupRemote for ${worktreePath}`, error)
+  }
+}
+
 async function performAddWorktree(
   repoPath: string,
   worktreePath: string,
@@ -1018,6 +1054,9 @@ async function performAddWorktree(
   })
 
   if (options.checkoutExistingBranch) {
+    // #15645: a claimed branch skips branch.<name>.base (it is not a new branch) but still needs
+    // autoSetupRemote, or its first push fails with no upstream.
+    await ensurePushAutoSetupRemote(worktreePath, options)
     return localBaseRefRefresh ? { localBaseRefRefresh } : {}
   }
 
@@ -1025,34 +1064,7 @@ async function performAddWorktree(
     await persistWorktreeCreationBase(worktreePath, branch, effectiveBase, options)
   }
 
-  // SSH parity: relay's addWorktreeOp (src/relay/git-handler-worktree-ops.ts) mirrors this — change both in lockstep.
-  // Why: --no-track leaves no upstream until first push; push.autoSetupRemote=true lets a plain
-  // `git push` create+set origin/<branch> (git >=2.37; older clients ignore it). `--local` on a
-  // linked worktree writes the shared common-dir config (whole repo) — intentional and idempotent,
-  // so it's warn-only and not rolled back on failure.
-  try {
-    // Why: `--get` (not `--local --get`) so a value at any scope counts as "user already chose" and isn't overwritten.
-    let alreadySet = false
-    try {
-      await gitExecFileAsync(['config', '--get', 'push.autoSetupRemote'], {
-        ...gitExecOptions(worktreePath, options)
-      })
-      alreadySet = true
-    } catch (readError) {
-      // Why: `git config --get` exits 1 only when unset at every scope; any other code is a real read failure — rethrow rather than overwrite the user's value.
-      const code = (readError as { code?: unknown })?.code
-      if (code !== 1) {
-        throw readError
-      }
-    }
-    if (!alreadySet) {
-      await gitExecFileAsync(['config', '--local', 'push.autoSetupRemote', 'true'], {
-        ...gitExecOptions(worktreePath, options)
-      })
-    }
-  } catch (error) {
-    console.warn(`addWorktree: failed to set push.autoSetupRemote for ${worktreePath}`, error)
-  }
+  await ensurePushAutoSetupRemote(worktreePath, options)
   return {
     ...(localBaseRefRefresh ? { localBaseRefRefresh } : {}),
     ...(localBaseRefUpdateSuggestion ? { localBaseRefUpdateSuggestion } : {})
