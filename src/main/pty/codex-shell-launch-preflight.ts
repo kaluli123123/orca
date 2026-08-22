@@ -60,7 +60,16 @@ function isExecutableFileOnDisk(path: string, platform: NodeJS.Platform): boolea
 
 export function getPosixCodexShellLaunchPreflight(): string {
   return `# Why: a typed alias expands inside the shell, after pane launch prep.
-__orca_codex_binary="$(command -v codex 2>/dev/null || :)"
+# Why: \`command -v codex\` returns the alias definition text (not empty) when
+# codex is aliased, so a plain lookup makes \`-x\` false and the guard body
+# below never runs — silently skipping the preflight for exactly the users
+# issue #15830 is about. Unalias inside this command-substitution subshell so
+# the lookup resolves the real binary; that unalias does not affect the
+# alias in the outer shell.
+__orca_codex_binary="$(
+  unalias codex 2>/dev/null || :
+  command -v codex 2>/dev/null || :
+)"
 if [[ -n "\${ORCA_CODEX_LAUNCH_PREFLIGHT:-}" && -n "\${__orca_codex_binary:-}" && -x "\${__orca_codex_binary}" ]]; then
   # Why: an \`alias codex=...\` from the user's rc file expands the word
   # "codex" at parse time, turning \`codex() {\` into a syntax error before
