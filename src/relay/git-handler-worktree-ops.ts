@@ -75,6 +75,10 @@ export async function addWorktreeOp(git: GitExec, params: Record<string, unknown
   await git(args, repoPath)
 
   if (checkoutExistingBranch) {
+    // Why: a claimed branch skips branch.<name>.base (it is not a new
+    // branch) but still needs autoSetupRemote, or its first push fails
+    // with no upstream — mirrors local addWorktree's claim path.
+    await ensureRelayPushAutoSetupRemote(git, targetDir)
     return
   }
 
@@ -82,12 +86,16 @@ export async function addWorktreeOp(git: GitExec, params: Record<string, unknown
     await persistRelayWorktreeCreationBase(git, targetDir, branchName, effectiveBase)
   }
 
-  // Why: best-effort write so a deliberate user value (any scope) is
-  // preserved and a real read failure is not silently overwritten. Final
-  // catch is warn-only — if the remote host's git is <2.37 the value is
-  // ignored at push time and the user falls back to `git push -u` once.
-  // (Note: it is the SSH host's git that matters here, not the client's.)
-  // Mirrors local addWorktree exactly.
+  await ensureRelayPushAutoSetupRemote(git, targetDir)
+}
+
+// Why: best-effort write so a deliberate user value (any scope) is
+// preserved and a real read failure is not silently overwritten. Final
+// catch is warn-only — if the remote host's git is <2.37 the value is
+// ignored at push time and the user falls back to `git push -u` once.
+// (Note: it is the SSH host's git that matters here, not the client's.)
+// Mirrors local addWorktree exactly.
+async function ensureRelayPushAutoSetupRemote(git: GitExec, targetDir: string): Promise<void> {
   try {
     let alreadySet = false
     try {

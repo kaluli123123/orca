@@ -964,13 +964,11 @@ export async function addWorktree(
   }
 }
 
-// SSH parity gap (known follow-up, out of scope here): this fix covers only local addWorktree's
-// claim path. Relay's addWorktreeOp (src/relay/git-handler-worktree-ops.ts) still early-returns on
-// its checkoutExistingBranch branch before reaching the equivalent block, so remote claims skip it.
 // Why: --no-track leaves no upstream until first push; push.autoSetupRemote=true lets a plain
 // `git push` create+set origin/<branch> (git >=2.37; older clients ignore it). `--local` on a
 // linked worktree writes the shared common-dir config (whole repo) — intentional and idempotent,
-// so it's warn-only and not rolled back on failure.
+// so it's warn-only and not rolled back on failure. Relay's addWorktreeOp
+// (src/relay/git-handler-worktree-ops.ts) mirrors this for SSH-mounted repos — change both in lockstep.
 async function ensurePushAutoSetupRemote(
   worktreePath: string,
   options: AddWorktreeOptions
