@@ -317,12 +317,30 @@ export class SshConnection {
     }
     const guardOperation = async <R>(operation: () => Promise<R>): Promise<R> => {
       let onSftpError!: (error: Error) => void
+      let sftpErrorWonRace = false
       const sftpError = new Promise<never>((_resolve, reject) => {
-        onSftpError = (error: Error): void => reject(error)
+        onSftpError = (error: Error): void => {
+          sftpErrorWonRace = true
+          reject(error)
+        }
         sftp.prependOnceListener('error', onSftpError)
       })
       try {
-        return await Promise.race([operation(), sftpError])
+        // Why: if sftpError wins the race, this keeps running unobserved and may reject
+        // later (e.g. once endSftp() closes the channel) — swallow that so it doesn't
+        // surface as an unhandled rejection; the race's winner is what callers see.
+        // Called inside try so a synchronous throw from operation() still runs finally's
+        // listener removal below.
+        const operationResult = operation()
+        operationResult.catch(() => {})
+        return await Promise.race([operationResult, sftpError])
+      } catch (error) {
+        // Why: a channel-level error leaves the session unusable for later calls (e.g. a
+        // retained upload session) — close it so callers don't keep writing to a dead channel.
+        if (sftpErrorWonRace) {
+          endSftp()
+        }
+        throw error
       } finally {
         sftp.removeListener('error', onSftpError)
       }
