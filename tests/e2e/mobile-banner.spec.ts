@@ -1,5 +1,11 @@
 import type { ElectronApplication, Page, TestInfo } from '@stablyai/playwright-test'
+import { RuntimeClient } from '../../src/cli/runtime/client'
 import { test, expect } from './helpers/orca-app'
+import {
+  createRuntimeDesktopPairingOffer,
+  launchPairedElectronClient,
+  type PairedElectronClient
+} from './helpers/paired-electron-client'
 import {
   ensureTerminalVisible,
   getActiveWorktreeId,
@@ -89,38 +95,126 @@ test('mobile subscribe mounts overlay; collapse → chip; Take back dismisses', 
   await expect(overlay).toBeHidden({ timeout: 15_000 })
 })
 
-test('browser Take back releases its retained driver state', async ({ orcaPage, electronApp }) => {
-  await waitForSessionReady(orcaPage)
-  const worktreeId = await waitForActiveWorktree(orcaPage)
-  const browserPageId = await orcaPage.evaluate((targetWorktreeId) => {
-    const state = window.__store!.getState()
-    const tab = state.createBrowserTab(targetWorktreeId, 'about:blank', {
-      title: 'Mobile driver test',
-      activate: true
+test('browser Take back releases its retained driver state', async ({
+  electronApp,
+  orcaPage,
+  testRepoPath
+}, testInfo: TestInfo) => {
+  test.setTimeout(180_000)
+  let client: PairedElectronClient | null = null
+  try {
+    await waitForSessionReady(orcaPage)
+    await waitForActiveWorktree(orcaPage)
+    const offer = await createRuntimeDesktopPairingOffer(orcaPage)
+    const userDataDir = await electronApp.evaluate(({ app }) => app.getPath('userData'))
+    const hostClient = new RuntimeClient(userDataDir, 5_000)
+    client = await launchPairedElectronClient(offer, testInfo, 'Browser driver regression')
+    let worktreeId: string | null = null
+    await expect
+      .poll(
+        async () => {
+          worktreeId = await client!.page.evaluate(
+            (path) =>
+              window.__store
+                ?.getState()
+                .allWorktrees()
+                .find((worktree) => worktree.path === path)?.id ?? null,
+            testRepoPath
+          )
+          return worktreeId
+        },
+        {
+          timeout: 60_000,
+          message: 'paired client never received the host worktree'
+        }
+      )
+      .not.toBeNull()
+    if (!worktreeId) {
+      throw new Error('Paired worktree disappeared after discovery')
+    }
+
+    const created = await hostClient.call<{ browserPageId: string }>('browser.tabCreate', {
+      activate: true,
+      url: 'about:blank',
+      worktree: `id:${worktreeId}`
     })
-    return tab.activePageId
-  }, worktreeId)
-  if (!browserPageId) {
-    throw new Error('Browser page was not created')
-  }
-
-  const addressBar = orcaPage.locator('[data-orca-browser-address-bar="true"]')
-  await expect(addressBar).toBeVisible({ timeout: 15_000 })
-  await sendBrowserMobileDriverIpc(electronApp, { browserPageId })
-
-  const overlay = orcaPage.locator('.mobile-browser-driver-banner')
-  await expect(overlay).toBeVisible({ timeout: 15_000 })
-  await overlay.getByRole('button').click()
-  await expect(overlay).toBeHidden({ timeout: 15_000 })
-  await expect
-    .poll(() =>
-      orcaPage.evaluate(async (targetPageId) => {
-        const drivers = await window.api.runtime.getBrowserDrivers()
-        return drivers.some(({ browserPageId: id }) => id === targetPageId)
-      }, browserPageId)
+    const browserPageId = created.result.browserPageId
+    await client.page.evaluate(
+      ({ environmentId, worktreeId }) => {
+        window.__store?.getState().setActiveWorktree(worktreeId, `runtime:${environmentId}`)
+      },
+      { environmentId: client.environmentId, worktreeId }
     )
-    .toBe(false)
-  await expect(addressBar).toBeEnabled()
+    let clientPageId: string | null = null
+    await expect
+      .poll(
+        async () => {
+          clientPageId = await client!.page.evaluate(
+            ({ browserPageId, worktreeId }) => {
+              const state = window.__store?.getState()
+              for (const workspace of state?.browserTabsByWorktree[worktreeId] ?? []) {
+                for (const page of state?.browserPagesByWorkspace[workspace.id] ?? []) {
+                  if (
+                    state?.remoteBrowserPageHandlesByPageId[page.id]?.remotePageId === browserPageId
+                  ) {
+                    return page.id
+                  }
+                }
+              }
+              return null
+            },
+            { browserPageId, worktreeId }
+          )
+          return clientPageId
+        },
+        {
+          timeout: 60_000,
+          message: 'paired client never mirrored the host browser page'
+        }
+      )
+      .not.toBeNull()
+    if (!clientPageId) {
+      throw new Error('Mirrored browser page disappeared after discovery')
+    }
+    await client.page.evaluate(
+      ({ pageId, worktreeId }) =>
+        window.__store?.getState().focusBrowserTabInWorktree(worktreeId, pageId, {
+          surfacePane: true
+        }),
+      { pageId: clientPageId, worktreeId }
+    )
+    await expect(client.page.getByTestId('remote-browser-frame').first()).toBeVisible({
+      timeout: 60_000
+    })
+
+    const addressBar = orcaPage.locator('[data-orca-browser-address-bar="true"]:visible')
+    await expect(addressBar).toBeVisible({ timeout: 15_000 })
+    await expect
+      .poll(() =>
+        orcaPage.evaluate(async (targetPageId) => {
+          const drivers = await window.api.runtime.getBrowserDrivers()
+          return drivers.find(({ browserPageId: id }) => id === targetPageId)?.driver ?? null
+        }, browserPageId)
+      )
+      .toMatchObject({ kind: 'mobile' })
+    await expect(addressBar).toBeDisabled()
+
+    const overlay = orcaPage.locator('.mobile-browser-driver-banner')
+    await expect(overlay).toBeVisible({ timeout: 15_000 })
+    await overlay.getByRole('button').click()
+    await expect(overlay).toBeHidden({ timeout: 15_000 })
+    await expect
+      .poll(() =>
+        orcaPage.evaluate(async (targetPageId) => {
+          const drivers = await window.api.runtime.getBrowserDrivers()
+          return drivers.some(({ browserPageId: id }) => id === targetPageId)
+        }, browserPageId)
+      )
+      .toBe(false)
+    await expect(addressBar).toBeEnabled()
+  } finally {
+    await client?.dispose()
+  }
 })
 
 test('held phone-fit state mounts restore overlay without collapse', async ({
@@ -312,20 +406,6 @@ async function sendMobileSubscribeIpc(
       })
       win.webContents.send('runtime:terminalDriverChanged', {
         ptyId: payload.ptyId,
-        driver: { kind: 'mobile', clientId: 'fake-phone-1' }
-      })
-    }
-  }, args)
-}
-
-async function sendBrowserMobileDriverIpc(
-  electronApp: ElectronApplication,
-  args: { browserPageId: string }
-): Promise<void> {
-  await electronApp.evaluate(({ BrowserWindow }, payload) => {
-    for (const win of BrowserWindow.getAllWindows()) {
-      win.webContents.send('runtime:browserDriverChanged', {
-        browserPageId: payload.browserPageId,
         driver: { kind: 'mobile', clientId: 'fake-phone-1' }
       })
     }
