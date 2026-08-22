@@ -123,6 +123,50 @@ describe.skipIf(process.platform === 'win32')('Codex shell launch preflight', ()
     expect(output).toBe('alive')
   })
 
+  it('runs the preflight hook even when the user has aliased codex itself', () => {
+    // Why: `command -v codex` returns the alias definition text (not empty)
+    // when codex is aliased, so `-x` on that text is false and the guard body
+    // never installs the wrapper — silently skipping the preflight hook for
+    // exactly the users issue #15830 is about. The binary lookup must resolve
+    // inside an unaliased subshell so `-x` sees the real executable.
+    const root = mkdtempSync(join(tmpdir(), 'orca-codex-self-alias-'))
+    roots.push(root)
+    const bin = join(root, 'bin')
+    mkdirSync(bin)
+    const markerPath = join(root, 'preflight-ran')
+    writeExecutable(join(bin, 'codex'), '#!/bin/sh\nprintf "codex:%s\\n" "$*"\n')
+    writeExecutable(
+      join(bin, 'orca-test'),
+      `#!/bin/sh\n[ "$1 $2 $3" = "agent hooks prepare-codex" ] || exit 2\nprintf ran > ${JSON.stringify(markerPath)}\n`
+    )
+
+    const output = execFileSync(
+      '/bin/bash',
+      [
+        '--noprofile',
+        '--norc',
+        '-c',
+        [
+          'shopt -s expand_aliases',
+          'alias codex="codex --flag"',
+          getPosixCodexShellLaunchPreflight(),
+          'codex extra'
+        ].join('\n')
+      ],
+      {
+        encoding: 'utf-8',
+        env: {
+          ...process.env,
+          PATH: `${bin}:${process.env.PATH ?? ''}`,
+          ORCA_CODEX_LAUNCH_PREFLIGHT: join(bin, 'orca-test')
+        }
+      }
+    ).trim()
+
+    expect(existsSync(markerPath)).toBe(true)
+    expect(output).toBe('codex:extra')
+  })
+
   it.each([
     ['/bin/bash', 'set -e'],
     ['/bin/zsh', 'setopt ERR_EXIT']
