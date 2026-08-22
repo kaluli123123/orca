@@ -266,6 +266,50 @@ exit 0
   })
 
   itWithBash(
+    'does not raise a bash syntax error when the user has aliased omp itself, and keeps the alias flags',
+    async () => {
+      // Why: `alias omp=...` expands the word "omp" at parse time, before the
+      // wrapper's `if` condition ever runs — see issue #15830. The wrapper must
+      // not `unalias omp`: bash resolves the surviving alias once and falls
+      // through to the wrapper function, so the user's alias flags (here
+      // `--flag`) must still reach the real omp binary alongside the status
+      // extension args.
+      const tempDir = makeTempDir()
+      const binDir = join(tempDir, 'bin')
+      const extensionDir = join(tempDir, 'extensions')
+      mkdirSync(binDir)
+      mkdirSync(extensionDir, { recursive: true })
+      const statusExtension = join(extensionDir, 'orca-agent-status.ts')
+      writeFileSync(statusExtension, 'export default {}')
+      writeFakeOmp(binDir)
+
+      const captureFile = join(tempDir, 'alias-capture')
+      const output = await runInteractiveBashPty({
+        cwd: tempDir,
+        rcfileContent: `alias omp="omp --flag"\n${getPosixOmpShellWrapper()}`,
+        env: {
+          ...process.env,
+          HOME: tempDir,
+          PATH: `${binDir}:${process.env.PATH ?? ''}`,
+          PI_CODING_AGENT_DIR: '',
+          ORCA_OMP_STATUS_EXTENSION: statusExtension,
+          ORCA_CAPTURE_FILE: captureFile,
+          TERM: process.env.TERM || 'xterm-256color'
+        },
+        input: `omp userarg\nexit 0\n`
+      })
+
+      expect(output).not.toMatch(/syntax error/)
+
+      const capture = readFileSync(captureFile, 'utf8')
+      expect(capture).toContain('ARG1=--extension')
+      expect(capture).toContain(`ARG2=${statusExtension}`)
+      expect(capture).toContain('ARG3=--flag')
+      expect(capture).toContain('ARG4=userarg')
+    }
+  )
+
+  itWithBash(
     'lets OMP config subcommands fall back to the default home without a source shadow',
     async () => {
       const tempDir = makeTempDir()
