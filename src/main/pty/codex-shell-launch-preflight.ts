@@ -62,7 +62,12 @@ export function getPosixCodexShellLaunchPreflight(): string {
   return `# Why: a typed alias expands inside the shell, after pane launch prep.
 __orca_codex_binary="$(command -v codex 2>/dev/null || :)"
 if [[ -n "\${ORCA_CODEX_LAUNCH_PREFLIGHT:-}" && -n "\${__orca_codex_binary:-}" && -x "\${__orca_codex_binary}" ]]; then
-  codex() {
+  # Why: an \`alias codex=...\` from the user's rc file expands the word
+  # "codex" at parse time, turning \`codex() {\` into a syntax error before
+  # this line ever runs. Clear the alias and use the \`function\` keyword
+  # form, which bash does not alias-expand, as a second, independent guard.
+  unalias codex 2>/dev/null || :
+  function codex {
     "\${ORCA_CODEX_LAUNCH_PREFLIGHT}" agent hooks prepare-codex >/dev/null 2>&1 || :
     command codex "$@"
   }

@@ -101,6 +101,28 @@ describe.skipIf(process.platform === 'win32')('Codex shell launch preflight', ()
     )
   })
 
+  it('does not raise a bash syntax error when the user has aliased codex itself', () => {
+    // Why: `alias codex=...` expands the word "codex" at parse time, before
+    // the wrapper's `if` condition ever runs — see issue #15830.
+    const output = execFileSync(
+      '/bin/bash',
+      [
+        '--noprofile',
+        '--norc',
+        '-c',
+        [
+          'shopt -s expand_aliases',
+          'alias codex="codex --flag"',
+          getPosixCodexShellLaunchPreflight(),
+          'printf alive'
+        ].join('\n')
+      ],
+      { encoding: 'utf-8' }
+    ).trim()
+
+    expect(output).toBe('alive')
+  })
+
   it.each([
     ['/bin/bash', 'set -e'],
     ['/bin/zsh', 'setopt ERR_EXIT']
