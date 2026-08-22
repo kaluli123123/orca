@@ -467,8 +467,34 @@ describe('GitHandler', () => {
       })
 
       expect(gitMock.mock.calls.map((c) => c[0])).toEqual([
-        ['worktree', 'add', '/relay/wt', 'feature/test']
+        ['worktree', 'add', '/relay/wt', 'feature/test'],
+        ['config', '--get', 'push.autoSetupRemote']
       ])
+    })
+
+    // Why: a claimed branch skips branch.base (it is not a new branch) but still needs
+    // autoSetupRemote, or its first push fails with no upstream — parity with the new-branch path.
+    it('checks out a selected existing local branch and still writes push.autoSetupRemote when unset', async () => {
+      const { localDispatcher, gitMock } = setupMockedHandler(['/relay/repo', '/relay/wt'])
+      gitMock.mockResolvedValueOnce({ stdout: '', stderr: '' }) // worktree add
+      gitMock.mockRejectedValueOnce(Object.assign(new Error('key unset'), { code: 1 })) // --get
+      gitMock.mockResolvedValueOnce({ stdout: '', stderr: '' }) // --local set
+
+      await localDispatcher.callRequest('git.addWorktree', {
+        repoPath: '/relay/repo',
+        branchName: 'feature/test',
+        targetDir: '/relay/wt',
+        base: 'feature/test',
+        checkoutExistingBranch: true
+      })
+
+      expect(gitMock.mock.calls.map((c) => c[0])).toEqual([
+        ['worktree', 'add', '/relay/wt', 'feature/test'],
+        ['config', '--get', 'push.autoSetupRemote'],
+        ['config', '--local', 'push.autoSetupRemote', 'true']
+      ])
+      expect(gitMock.mock.calls[1]?.[1]).toBe('/relay/wt')
+      expect(gitMock.mock.calls[2]?.[1]).toBe('/relay/wt')
     })
 
     it('qualifies bare branch name as refs/heads/ when a same-named tag exists', async () => {

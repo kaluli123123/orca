@@ -84,7 +84,32 @@ describe('addWorktreeOp', () => {
     })
 
     expect(git.mock.calls.map((call) => call[0])).toEqual([
-      ['worktree', 'add', '/repo-feature', 'feature/test']
+      ['worktree', 'add', '/repo-feature', 'feature/test'],
+      ['config', '--get', 'push.autoSetupRemote']
+    ])
+  })
+
+  // Why: a claimed SSH branch skips branch.base (it is not a new branch) but still needs
+  // autoSetupRemote, or its first push fails with no upstream — parity with local addWorktree.
+  it('checks out an existing SSH branch and still enables push.autoSetupRemote', async () => {
+    const git = vi.fn<GitExec>(async (args) => {
+      if (args[0] === 'config' && args[1] === '--get') {
+        throw Object.assign(new Error('key unset'), { code: 1 })
+      }
+      return { stdout: '', stderr: '' }
+    })
+
+    await addWorktreeOp(git, {
+      repoPath: '/repo',
+      branchName: 'feature/test',
+      targetDir: '/repo-feature',
+      checkoutExistingBranch: true
+    })
+
+    expect(git.mock.calls.map((call) => call[0])).toEqual([
+      ['worktree', 'add', '/repo-feature', 'feature/test'],
+      ['config', '--get', 'push.autoSetupRemote'],
+      ['config', '--local', 'push.autoSetupRemote', 'true']
     ])
   })
 
