@@ -38,6 +38,7 @@ export function BrowserPageToolbar({
   sessionProfileId,
   viewportPresetId,
   isActive,
+  inputLocked,
   canGoBack,
   canGoForward,
   loading,
@@ -73,6 +74,7 @@ export function BrowserPageToolbar({
   sessionProfileId: string | null
   viewportPresetId: BrowserViewportPresetId | null
   isActive: boolean
+  inputLocked: boolean
   canGoBack: boolean
   canGoForward: boolean
   loading: boolean
@@ -184,6 +186,7 @@ export function BrowserPageToolbar({
       </DropdownMenu>
 
       <BrowserAddressBar
+        disabled={inputLocked}
         value={addressBarValue}
         onChange={setAddressBarValue}
         onSubmit={submitAddressBar}

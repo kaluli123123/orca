@@ -10,6 +10,7 @@ import { shouldOverlayBrowserAddressBar } from './browser-address-bar-expansion'
 import BrowserAddressBarSuggestionList from './BrowserAddressBarSuggestionList'
 
 type BrowserAddressBarProps = {
+  disabled?: boolean
   value: string
   onChange: (value: string) => void
   onSubmit: () => void
@@ -19,6 +20,7 @@ type BrowserAddressBarProps = {
 }
 
 export default function BrowserAddressBar({
+  disabled = false,
   value,
   onChange,
   onSubmit,
@@ -373,6 +375,7 @@ export default function BrowserAddressBar({
             <Globe className="size-4 shrink-0 text-muted-foreground" />
             <Input
               ref={inputRef}
+              disabled={disabled}
               value={value}
               onFocus={handleFocus}
               onBlur={handleBlur}
