@@ -40,7 +40,11 @@ function hasNonEmptyFieldValue(value: ProjectFieldValue | undefined): value is P
       return value.text.trim().length > 0
     case 'date':
       return value.date.trim().length > 0
-    default:
+    case 'single-select':
+      return value.name.trim().length > 0
+    case 'iteration':
+      return value.title.trim().length > 0
+    case 'number':
       return true
   }
 }

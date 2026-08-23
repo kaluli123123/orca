@@ -16,8 +16,7 @@ import {
 import { assertWorktreeCleanForRemoval } from './worktree'
 import { getStatus } from './status'
 
-// Why not os.devNull: it is `\\.\nul` on Windows, which Git rejects as a config
-// path. A private mkdtemp dir is what makes this path's absence guaranteed.
+// Why: a private temp path is absent on every platform, unlike Windows os.devNull.
 const CONFIG_ISOLATION_DIR = mkdtempSync(join(tmpdir(), 'orca-shared-dirs-noconfig-'))
 const ABSENT_GIT_CONFIG = join(CONFIG_ISOLATION_DIR, 'absent.gitconfig')
 

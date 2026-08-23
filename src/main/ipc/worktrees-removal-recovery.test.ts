@@ -61,6 +61,9 @@ vi.mock('./worktree-symlinks', async () =>
   (await import('./worktrees-test-module-mocks')).worktreeSymlinksModuleMock()
 )
 vi.mock('./ssh', async () => (await import('./worktrees-test-module-mocks')).sshModuleMock())
+vi.mock('../ssh/ssh-target-registry', async () =>
+  (await import('./worktrees-test-module-mocks')).sshTargetRegistryModuleMock()
+)
 vi.mock('../hooks', async () => (await import('./worktrees-test-module-mocks')).hooksModuleMock())
 vi.mock('../setup-runner-script-text', async (importOriginal) =>
   (await import('./worktrees-test-module-mocks')).setupRunnerScriptTextModuleMock(
@@ -511,6 +514,9 @@ describe('registerWorktreeHandlers', () => {
       includeProviderInventory: true,
       includeLocalRegistry: false
     })
+    expect(store.removeWorktreeMeta).toHaveBeenCalledWith(worktreeId, 'ssh:conn-1')
+    expect(advertisedUrlWatcherForgetWorktreeMock).not.toHaveBeenCalled()
+    expect(deleteWorktreeHistoryDirMock).not.toHaveBeenCalled()
   })
 
   it('fences a mirrored runtime folder workspace sweep to its environment', async () => {

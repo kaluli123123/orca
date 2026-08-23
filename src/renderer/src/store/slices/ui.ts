@@ -2,9 +2,10 @@
 import type { StateCreator } from 'zustand'
 import type { AppState } from '../types'
 import { normalizeRightSidebarRoute } from '../right-sidebar-route'
+import { settleEvictedModalData } from './modal-slot-dismissal'
 import {
   findPrevLiveNonTaskStackHistoryIndex,
-  findPrevLiveWorktreeHistoryIndex
+  rewindHistoryIndexPastView
 } from './worktree-nav-history'
 import type { GitHubWorkItem } from '../../../../shared/github/work-item-types'
 import type { JiraIssue } from '../../../../shared/jira-types'
@@ -136,6 +137,7 @@ import { getRepoHostIdentity } from './repo-host-identity'
 
 export type PendingSidebarWorktreeReveal = {
   worktreeId: string
+  executionHostId?: ExecutionHostId
   behavior: 'auto' | 'smooth'
   highlight?: boolean
   beginRename?: boolean
@@ -974,6 +976,7 @@ export type UISlice = {
       behavior?: PendingSidebarWorktreeReveal['behavior']
       highlight?: boolean
       beginRename?: boolean
+      executionHostId?: ExecutionHostId
     }
   ) => void
   revealSidebarRow: (
@@ -1494,20 +1497,10 @@ export const createUISlice: StateCreator<AppState, [], [], UISlice> = (set, get)
     }))
   },
   closeAutomationsPage: () =>
-    set((state) => {
-      const currentEntry = state.worktreeNavHistory[state.worktreeNavHistoryIndex]
-      let nextHistoryIndex = state.worktreeNavHistoryIndex
-      if (currentEntry === 'automations') {
-        const prev = findPrevLiveWorktreeHistoryIndex(state)
-        if (prev !== null) {
-          nextHistoryIndex = prev
-        }
-      }
-      return {
-        activeView: state.previousViewBeforeAutomations,
-        worktreeNavHistoryIndex: nextHistoryIndex
-      }
-    }),
+    set((state) => ({
+      activeView: state.previousViewBeforeAutomations,
+      worktreeNavHistoryIndex: rewindHistoryIndexPastView(state, 'automations')
+    })),
   openSpacePage: () => {
     get().recordFeatureInteraction?.('workspace-cleanup')
     set((state) => ({
@@ -1520,41 +1513,51 @@ export const createUISlice: StateCreator<AppState, [], [], UISlice> = (set, get)
     set((state) => ({
       activeView: state.previousViewBeforeSpace
     })),
-  openSkillsPage: () =>
+  openSkillsPage: () => {
+    get().recordViewVisit('skills')
     set((state) => ({
       activeView: 'skills',
       previousViewBeforeSkills:
         state.activeView === 'skills' ? state.previousViewBeforeSkills : state.activeView
-    })),
+    }))
+  },
   closeSkillsPage: () =>
     set((state) => ({
-      activeView: state.previousViewBeforeSkills
+      activeView: state.previousViewBeforeSkills,
+      worktreeNavHistoryIndex: rewindHistoryIndexPastView(state, 'skills')
     })),
-  openSkillShare: (shareId) =>
+  openSkillShare: (shareId) => {
+    get().recordViewVisit('skills')
     set((state) => ({
       activeView: 'skills',
       previousViewBeforeSkills:
         state.activeView === 'skills' ? state.previousViewBeforeSkills : state.activeView,
       pendingSkillShareId: shareId
-    })),
+    }))
+  },
   clearPendingSkillShare: () => set({ pendingSkillShareId: null }),
-  openSkillsSharedLinks: () =>
+  openSkillsSharedLinks: () => {
+    get().recordViewVisit('skills')
     set((state) => ({
       activeView: 'skills',
       previousViewBeforeSkills:
         state.activeView === 'skills' ? state.previousViewBeforeSkills : state.activeView,
       pendingSkillsSharedView: true
-    })),
+    }))
+  },
   clearPendingSkillsSharedView: () => set({ pendingSkillsSharedView: false }),
-  openArtifactsPage: () =>
+  openArtifactsPage: () => {
+    get().recordViewVisit('artifacts')
     set((state) => ({
       activeView: 'artifacts',
       previousViewBeforeArtifacts:
         state.activeView === 'artifacts' ? state.previousViewBeforeArtifacts : state.activeView
-    })),
+    }))
+  },
   closeArtifactsPage: () =>
     set((state) => ({
-      activeView: state.previousViewBeforeArtifacts
+      activeView: state.previousViewBeforeArtifacts,
+      worktreeNavHistoryIndex: rewindHistoryIndexPastView(state, 'artifacts')
     })),
   openMobilePage: () =>
     set((state) => ({
@@ -1633,12 +1636,18 @@ export const createUISlice: StateCreator<AppState, [], [], UISlice> = (set, get)
     if (modal === 'add-repo' || modal === 'create-worktree') {
       get().recordFeatureInteraction?.('workspace-creation')
     }
+    const evicted = get().modalData
     set({
       activeModal: modal,
       modalData: data
     })
+    settleEvictedModalData(evicted)
   },
-  closeModal: () => set({ activeModal: 'none', modalData: {} }),
+  closeModal: () => {
+    const evicted = get().modalData
+    set({ activeModal: 'none', modalData: {} })
+    settleEvictedModalData(evicted)
+  },
   featureTipsSeenIds: [],
   markFeatureTipsSeen: (ids) =>
     set((s) => {
@@ -2415,6 +2424,7 @@ export const createUISlice: StateCreator<AppState, [], [], UISlice> = (set, get)
     set({
       pendingRevealWorktree: {
         worktreeId,
+        ...(options?.executionHostId ? { executionHostId: options.executionHostId } : {}),
         behavior: options?.behavior ?? 'smooth',
         ...(options?.highlight ? { highlight: true } : {}),
         ...(options?.beginRename ? { beginRename: true } : {})

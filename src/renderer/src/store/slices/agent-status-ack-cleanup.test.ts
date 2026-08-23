@@ -108,18 +108,13 @@ describe('acknowledgedAgentsByPaneKey cleanup on teardown', () => {
     const newEntry = store.getState().agentStatusByPaneKey['tab-1:0']
     const ackAt = store.getState().acknowledgedAgentsByPaneKey['tab-1:0'] ?? 0
 
-    // Why: the unvisited rule (WorktreeCardAgents' unvisitedByPaneKey) is
-    // `ackAt < stateStartedAt`. A leaked session-1 ack would still be
-    // greater than the second paneKey's fresh stateStartedAt only by
-    // accident of wall-clock ordering, but more robustly: after cleanup,
-    // ackAt is 0, which is strictly less than any stateStartedAt.
+    // Why: cleanup resets ackAt below every new stateStartedAt so the pane is unvisited.
     expect(ackAt).toBe(0)
     expect(ackAt < newEntry.stateStartedAt).toBe(true)
   })
 })
 
-// Why: only the terminal-view path cleared unreadAgentCompletionPanes, so an
-// Activity-page ack left the tab dot lit.
+// Why: Activity-page acknowledgements must clear the tab-dot marker too.
 describe('acknowledgeAgents clears the unread agent-completion marker', () => {
   it('drops the pane from unreadAgentCompletionPanes', () => {
     const store = createTestStore()
