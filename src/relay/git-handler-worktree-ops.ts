@@ -1,6 +1,7 @@
 import * as path from 'node:path'
 import {
   GIT_PUSH_SET_UPSTREAM_GUIDANCE,
+  isPushAutoSetupRemoteApplicable,
   supportsPushAutoSetupRemote,
   type GitCapabilityCache
 } from '../shared/git-capability-cache'
@@ -126,6 +127,22 @@ async function ensureRelayPushAutoSetupRemote(
       }
     }
     if (!alreadySet) {
+      let pushDefault: string | undefined
+      try {
+        const { stdout } = await git(['config', '--get', 'push.default'], targetDir)
+        pushDefault = stdout
+      } catch (readError) {
+        const code = (readError as { code?: unknown })?.code
+        if (code !== 1) {
+          throw readError
+        }
+      }
+      if (!isPushAutoSetupRemoteApplicable(pushDefault)) {
+        console.warn(
+          `relay addWorktree: push.default does not support automatic upstream setup; first push requires: ${GIT_PUSH_SET_UPSTREAM_GUIDANCE}`
+        )
+        return
+      }
       const supported = await supportsPushAutoSetupRemote(capabilities, async () => {
         const { stdout } = await git(['help', '--config'], targetDir)
         return stdout

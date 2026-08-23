@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest'
 import {
   GIT_CAPABILITY_RETRY_INTERVAL_MS,
   GitCapabilityCache,
+  isPushAutoSetupRemoteApplicable,
   supportsPushAutoSetupRemote
 } from './git-capability-cache'
 
@@ -151,5 +152,16 @@ describe('GitCapabilityCache', () => {
     await expect(supportsPushAutoSetupRemote(cache, readConfigVariables)).resolves.toBe(true)
     await expect(supportsPushAutoSetupRemote(cache, readConfigVariables)).resolves.toBe(true)
     expect(readConfigVariables).toHaveBeenCalledTimes(1)
+  })
+
+  it.each([
+    [undefined, true],
+    ['simple', true],
+    ['upstream', true],
+    ['current', true],
+    ['matching', false],
+    ['nothing', false]
+  ])('checks whether push.default=%s supports automatic upstream setup', (value, expected) => {
+    expect(isPushAutoSetupRemoteApplicable(value)).toBe(expected)
   })
 })

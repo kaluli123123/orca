@@ -139,6 +139,9 @@ describe('addSparseWorktree', () => {
       'git config --get push.autoSetupRemote': {
         error: Object.assign(new Error('key unset'), { code: 1 })
       },
+      'git config --get push.default': {
+        error: Object.assign(new Error('key unset'), { code: 1 })
+      },
       'git help --config': { stdout: 'push.autoSetupRemote\n' },
       'git sparse-checkout set -- packages/web': {
         error: new Error('sparse setup failed')
@@ -170,6 +173,7 @@ branch refs/heads/main
       expect.arrayContaining([
         'git worktree add --no-checkout --no-track -b feature/test /repo-feature',
         'git config --get push.autoSetupRemote',
+        'git config --get push.default',
         'git help --config',
         'git config --local push.autoSetupRemote true',
         'git sparse-checkout init --cone',

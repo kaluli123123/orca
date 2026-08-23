@@ -126,6 +126,7 @@ describe('addWorktreeOp', () => {
     expect(git.mock.calls.map((call) => call[0])).toEqual([
       ['worktree', 'add', '/repo-feature', 'feature/test'],
       ['config', '--get', 'push.autoSetupRemote'],
+      ['config', '--get', 'push.default'],
       ['help', '--config'],
       ['config', '--local', 'push.autoSetupRemote', 'true']
     ])
@@ -152,6 +153,46 @@ describe('addWorktreeOp', () => {
     )
 
     expect(git.mock.calls.map((call) => call[0])).toContainEqual(['help', '--config'])
+    expect(git.mock.calls.map((call) => call[0])).not.toContainEqual([
+      'config',
+      '--local',
+      'push.autoSetupRemote',
+      'true'
+    ])
+    expect(warnSpy).toHaveBeenCalledWith(
+      expect.stringContaining('git push --set-upstream <remote> <branch>')
+    )
+    warnSpy.mockRestore()
+  })
+
+  it('shows explicit first-push guidance when remote push.default disables upstream setup', async () => {
+    const git = vi.fn<GitExec>(async (args) => {
+      if (args[0] === 'config' && args[1] === '--get' && args[2] === 'push.autoSetupRemote') {
+        throw Object.assign(new Error('key unset'), { code: 1 })
+      }
+      if (args[0] === 'config' && args[1] === '--get' && args[2] === 'push.default') {
+        return { stdout: 'matching\n', stderr: '' }
+      }
+      return { stdout: args[0] === 'help' ? 'push.autoSetupRemote\n' : '', stderr: '' }
+    })
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
+
+    await addWorktreeOp(
+      git,
+      {
+        repoPath: '/repo',
+        branchName: 'feature/test',
+        targetDir: '/repo-feature',
+        checkoutExistingBranch: true
+      },
+      new GitCapabilityCache()
+    )
+
+    expect(git.mock.calls.map((call) => call[0])).toContainEqual([
+      'config',
+      '--get',
+      'push.default'
+    ])
     expect(git.mock.calls.map((call) => call[0])).not.toContainEqual([
       'config',
       '--local',

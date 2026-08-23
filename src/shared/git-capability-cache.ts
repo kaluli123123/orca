@@ -12,6 +12,11 @@ export type GitCapability =
 
 export const GIT_PUSH_SET_UPSTREAM_GUIDANCE = 'git push --set-upstream <remote> <branch>'
 
+export function isPushAutoSetupRemoteApplicable(pushDefault: string | undefined): boolean {
+  const value = pushDefault?.trim()
+  return value === undefined || value === 'simple' || value === 'upstream' || value === 'current'
+}
+
 export async function supportsPushAutoSetupRemote(
   capabilities: GitCapabilityCache,
   readConfigVariables: () => Promise<string>

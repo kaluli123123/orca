@@ -27,6 +27,7 @@ import { decodeGitCQuotedPath } from '../../shared/git-cquoted-path'
 import { parseGitRevListAheadBehindCounts } from '../../shared/git-rev-list-output'
 import {
   GIT_PUSH_SET_UPSTREAM_GUIDANCE,
+  isPushAutoSetupRemoteApplicable,
   supportsPushAutoSetupRemote
 } from '../../shared/git-capability-cache'
 import { parseWslUncPath } from '../../shared/wsl-paths'
@@ -1004,6 +1005,25 @@ async function ensurePushAutoSetupRemote(
       }
     }
     if (!alreadySet) {
+      let pushDefault: string | undefined
+      try {
+        const { stdout } = await gitExecFileAsync(
+          ['config', '--get', 'push.default'],
+          gitExecOptions(worktreePath, options)
+        )
+        pushDefault = stdout
+      } catch (readError) {
+        const code = (readError as { code?: unknown })?.code
+        if (code !== 1) {
+          throw readError
+        }
+      }
+      if (!isPushAutoSetupRemoteApplicable(pushDefault)) {
+        console.warn(
+          `addWorktree: push.default does not support automatic upstream setup; first push requires: ${GIT_PUSH_SET_UPSTREAM_GUIDANCE}`
+        )
+        return
+      }
       const supported = await withLocalGitCapabilityCacheForExecution(
         { cwd: worktreePath, wslDistro: options.wslDistro, signal: options.signal },
         (capabilities) =>
