@@ -24,6 +24,10 @@ import { assertWorktreeUnlockedForRemoval } from '../../shared/worktree/removal'
 import { isSubmoduleWorktreeRemovalRefusal } from '../../shared/worktree/submodule-removal'
 import { decodeGitCQuotedPath } from '../../shared/git-cquoted-path'
 import { parseGitRevListAheadBehindCounts } from '../../shared/git-rev-list-output'
+import {
+  GIT_PUSH_SET_UPSTREAM_GUIDANCE,
+  supportsPushAutoSetupRemote
+} from '../../shared/git-capability-cache'
 import { parseWslUncPath } from '../../shared/wsl-paths'
 import {
   hasUnsupportedRevParsePathFormatEcho,
@@ -989,9 +993,27 @@ async function ensurePushAutoSetupRemote(
       }
     }
     if (!alreadySet) {
-      await gitExecFileAsync(['config', '--local', 'push.autoSetupRemote', 'true'], {
-        ...gitExecOptions(worktreePath, options)
-      })
+      const supported = await withLocalGitCapabilityCacheForExecution(
+        { cwd: worktreePath, wslDistro: options.wslDistro, signal: options.signal },
+        (capabilities) =>
+          supportsPushAutoSetupRemote(capabilities, async () => {
+            const { stdout } = await gitExecFileAsync(
+              ['help', '--config'],
+              gitExecOptions(worktreePath, options)
+            )
+            return stdout
+          })
+      )
+      if (!supported) {
+        console.warn(
+          `addWorktree: Git does not support push.autoSetupRemote; first push requires: ${GIT_PUSH_SET_UPSTREAM_GUIDANCE}`
+        )
+        return
+      }
+      await gitExecFileAsync(
+        ['config', '--local', 'push.autoSetupRemote', 'true'],
+        gitExecOptions(worktreePath, options)
+      )
     }
   } catch (error) {
     console.warn(`addWorktree: failed to set push.autoSetupRemote for ${worktreePath}`, error)

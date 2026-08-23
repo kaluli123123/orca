@@ -1,4 +1,9 @@
 import * as path from 'node:path'
+import {
+  GIT_PUSH_SET_UPSTREAM_GUIDANCE,
+  supportsPushAutoSetupRemote,
+  type GitCapabilityCache
+} from '../shared/git-capability-cache'
 import { resolveWorktreeAddBaseRef } from '../shared/worktree/base-ref'
 import type { GitExec } from './git-handler-ops'
 export { removeWorktreeOp } from './git-handler-worktree-remove'
@@ -28,7 +33,11 @@ async function persistRelayWorktreeCreationBase(
   }
 }
 
-export async function addWorktreeOp(git: GitExec, params: Record<string, unknown>): Promise<void> {
+export async function addWorktreeOp(
+  git: GitExec,
+  params: Record<string, unknown>,
+  capabilities: GitCapabilityCache
+): Promise<void> {
   const repoPath = params.repoPath as string
   const branchName = params.branchName as string
   const targetDir = params.targetDir as string
@@ -78,7 +87,7 @@ export async function addWorktreeOp(git: GitExec, params: Record<string, unknown
     // Why: a claimed branch skips branch.<name>.base (it is not a new
     // branch) but still needs autoSetupRemote, or its first push fails
     // with no upstream — mirrors local addWorktree's claim path.
-    await ensureRelayPushAutoSetupRemote(git, targetDir)
+    await ensureRelayPushAutoSetupRemote(git, targetDir, capabilities)
     return
   }
 
@@ -86,7 +95,7 @@ export async function addWorktreeOp(git: GitExec, params: Record<string, unknown
     await persistRelayWorktreeCreationBase(git, targetDir, branchName, effectiveBase)
   }
 
-  await ensureRelayPushAutoSetupRemote(git, targetDir)
+  await ensureRelayPushAutoSetupRemote(git, targetDir, capabilities)
 }
 
 // Why: best-effort write so a deliberate user value (any scope) is
@@ -95,7 +104,11 @@ export async function addWorktreeOp(git: GitExec, params: Record<string, unknown
 // ignored at push time and the user falls back to `git push -u` once.
 // (Note: it is the SSH host's git that matters here, not the client's.)
 // Mirrors local addWorktree exactly.
-async function ensureRelayPushAutoSetupRemote(git: GitExec, targetDir: string): Promise<void> {
+async function ensureRelayPushAutoSetupRemote(
+  git: GitExec,
+  targetDir: string,
+  capabilities: GitCapabilityCache
+): Promise<void> {
   try {
     let alreadySet = false
     try {
@@ -112,6 +125,16 @@ async function ensureRelayPushAutoSetupRemote(git: GitExec, targetDir: string): 
       }
     }
     if (!alreadySet) {
+      const supported = await supportsPushAutoSetupRemote(capabilities, async () => {
+        const { stdout } = await git(['help', '--config'], targetDir)
+        return stdout
+      })
+      if (!supported) {
+        console.warn(
+          `relay addWorktree: Git does not support push.autoSetupRemote; first push requires: ${GIT_PUSH_SET_UPSTREAM_GUIDANCE}`
+        )
+        return
+      }
       await git(['config', '--local', 'push.autoSetupRemote', 'true'], targetDir)
     }
   } catch (error) {

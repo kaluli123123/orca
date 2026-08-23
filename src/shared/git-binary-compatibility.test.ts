@@ -177,6 +177,13 @@ describeBinaryCompatibility('real Git binary compatibility', () => {
     }
   })
 
+  it('detects the push.autoSetupRemote capability at the Git 2.37 boundary', async () => {
+    const result = await runGit(['help', '--config'])
+    const variables = new Set(result.stdout.split(/\r?\n/))
+
+    expect(variables.has('push.autoSetupRemote')).toBe(supports(2, 37))
+  })
+
   it('fetches hosted review heads into dedicated refs', async () => {
     const head = (await runGit(['rev-parse', 'HEAD'])).stdout.trim()
     await runGit(['update-ref', 'refs/pull/42/head', head])

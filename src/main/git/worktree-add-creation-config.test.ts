@@ -51,6 +51,7 @@ describe('addWorktree', () => {
     gitExecFileAsyncMock.mockResolvedValueOnce({ stdout: '' }) // worktree add
     resolveCreationBaseConfigWrite()
     gitExecFileAsyncMock.mockRejectedValueOnce(Object.assign(new Error('key unset'), { code: 1 })) // config --get push.autoSetupRemote (unset)
+    gitExecFileAsyncMock.mockResolvedValueOnce({ stdout: 'push.autoSetupRemote\n' }) // help --config
     gitExecFileAsyncMock.mockResolvedValueOnce({ stdout: '' }) // config --local set push.autoSetupRemote
 
     await addWorktree('/repo', '/repo-feature', 'feature/test', 'origin/main')
@@ -80,8 +81,35 @@ describe('addWorktree', () => {
         { cwd: '/repo-feature' }
       ],
       [['config', '--get', 'push.autoSetupRemote'], { cwd: '/repo-feature' }],
+      [['help', '--config'], { cwd: '/repo-feature' }],
       [['config', '--local', 'push.autoSetupRemote', 'true'], { cwd: '/repo-feature' }]
     ])
+  })
+
+  it('shows the explicit first-push command when Git lacks push.autoSetupRemote', async () => {
+    resolveRemoteBase()
+    gitExecFileAsyncMock.mockResolvedValueOnce({ stdout: '' }) // worktree add
+    resolveCreationBaseConfigWrite()
+    gitExecFileAsyncMock.mockRejectedValueOnce(Object.assign(new Error('key unset'), { code: 1 }))
+    gitExecFileAsyncMock.mockResolvedValueOnce({ stdout: 'core.autocrlf\n' }) // help --config
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
+
+    await addWorktree('/repo', '/repo-feature', 'feature/test', 'origin/main')
+
+    expect(gitExecFileAsyncMock.mock.calls.map((call) => call[0])).toContainEqual([
+      'help',
+      '--config'
+    ])
+    expect(gitExecFileAsyncMock.mock.calls.map((call) => call[0])).not.toContainEqual([
+      'config',
+      '--local',
+      'push.autoSetupRemote',
+      'true'
+    ])
+    expect(warnSpy).toHaveBeenCalledWith(
+      expect.stringContaining('git push --set-upstream <remote> <branch>')
+    )
+    warnSpy.mockRestore()
   })
 
   // #15645: claiming an existing branch skips branch.<name>.base (not a new branch) but must still
@@ -89,6 +117,7 @@ describe('addWorktree', () => {
   it('checks out a selected existing local branch without creating a new branch, and still enables push.autoSetupRemote', async () => {
     gitExecFileAsyncMock.mockResolvedValueOnce({ stdout: '' }) // worktree add
     gitExecFileAsyncMock.mockRejectedValueOnce(Object.assign(new Error('key unset'), { code: 1 })) // config --get push.autoSetupRemote (unset)
+    gitExecFileAsyncMock.mockResolvedValueOnce({ stdout: 'push.autoSetupRemote\n' }) // help --config
     gitExecFileAsyncMock.mockResolvedValueOnce({ stdout: '' }) // config --local set push.autoSetupRemote
 
     await addWorktree('/repo', '/repo-feature', 'feature/test', 'feature/test', false, false, {
@@ -101,6 +130,7 @@ describe('addWorktree', () => {
         { cwd: '/repo', timeout: WORKTREE_ADD_TIMEOUT_MS }
       ],
       [['config', '--get', 'push.autoSetupRemote'], { cwd: '/repo-feature' }],
+      [['help', '--config'], { cwd: '/repo-feature' }],
       [['config', '--local', 'push.autoSetupRemote', 'true'], { cwd: '/repo-feature' }]
     ])
   })
@@ -357,6 +387,7 @@ describe('addWorktree', () => {
     gitExecFileAsyncMock.mockResolvedValueOnce({ stdout: '' }) // worktree add
     resolveCreationBaseConfigWrite()
     gitExecFileAsyncMock.mockRejectedValueOnce(Object.assign(new Error('key unset'), { code: 1 })) // config --get push.autoSetupRemote (unset)
+    gitExecFileAsyncMock.mockResolvedValueOnce({ stdout: 'push.autoSetupRemote\n' }) // help --config
     gitExecFileAsyncMock.mockResolvedValueOnce({ stdout: '' }) // config --local set push.autoSetupRemote
 
     await addWorktree('/repo', '/repo-feature', 'feature/disambig', 'main')
@@ -385,6 +416,7 @@ describe('addWorktree', () => {
     gitExecFileAsyncMock.mockResolvedValueOnce({ stdout: '' }) // worktree add
     resolveCreationBaseConfigWrite()
     gitExecFileAsyncMock.mockRejectedValueOnce(Object.assign(new Error('key unset'), { code: 1 })) // config --get push.autoSetupRemote (unset)
+    gitExecFileAsyncMock.mockResolvedValueOnce({ stdout: 'push.autoSetupRemote\n' }) // help --config
     gitExecFileAsyncMock.mockResolvedValueOnce({ stdout: '' }) // config --local set push.autoSetupRemote
 
     await addWorktree('/repo', '/repo-feature', 'feature/release', 'release/main')
@@ -409,6 +441,7 @@ describe('addWorktree', () => {
         'refs/heads/release/main'
       ],
       ['config', '--get', 'push.autoSetupRemote'],
+      ['help', '--config'],
       ['config', '--local', 'push.autoSetupRemote', 'true']
     ])
   })
@@ -419,6 +452,7 @@ describe('addWorktree', () => {
     gitExecFileAsyncMock.mockResolvedValueOnce({ stdout: '' }) // worktree add
     resolveCreationBaseConfigWrite()
     gitExecFileAsyncMock.mockRejectedValueOnce(Object.assign(new Error('key unset'), { code: 1 })) // config --get push.autoSetupRemote (unset)
+    gitExecFileAsyncMock.mockResolvedValueOnce({ stdout: 'push.autoSetupRemote\n' }) // help --config
     gitExecFileAsyncMock.mockResolvedValueOnce({ stdout: '' }) // config --local set push.autoSetupRemote
 
     const result = await addWorktree(
@@ -450,6 +484,7 @@ describe('addWorktree', () => {
         'refs/heads/release/main'
       ],
       ['config', '--get', 'push.autoSetupRemote'],
+      ['help', '--config'],
       ['config', '--local', 'push.autoSetupRemote', 'true']
     ])
   })
