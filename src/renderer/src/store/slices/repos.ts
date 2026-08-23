@@ -3075,16 +3075,15 @@ export const createRepoSlice: StateCreator<AppState, [], [], RepoSlice> = (set, 
       const executionTarget = options?.executionHostId
         ? getProjectGroupRuntimeTarget(get(), groupId, options.executionHostId)
         : null
-      if (options?.executionHostId && !executionTarget) {
+      const resolvedOwnerHostId = resolveProjectGroupOwnerHostId(get(), groupId, requestedHostId)
+      if (requestedHostId && !resolvedOwnerHostId) {
         return false
       }
       const target =
         executionTarget?.target ??
         getActiveRuntimeTarget(settingsForProjectGroupOwner(get(), groupId, requestedHostId))
       const ownerHostId =
-        executionTarget?.ownerHostId ??
-        resolveProjectGroupOwnerHostId(get(), groupId, requestedHostId) ??
-        getRuntimeTargetHostId(target)
+        executionTarget?.ownerHostId ?? resolvedOwnerHostId ?? getRuntimeTargetHostId(target)
       const updated =
         target.kind === 'local'
           ? await window.api.projectGroups.update({ groupId, updates })
@@ -3120,16 +3119,15 @@ export const createRepoSlice: StateCreator<AppState, [], [], RepoSlice> = (set, 
       const executionTarget = options?.executionHostId
         ? getProjectGroupRuntimeTarget(get(), groupId, options.executionHostId)
         : null
-      if (options?.executionHostId && !executionTarget) {
+      const resolvedOwnerHostId = resolveProjectGroupOwnerHostId(get(), groupId, requestedHostId)
+      if (requestedHostId && !resolvedOwnerHostId) {
         return false
       }
       const target =
         executionTarget?.target ??
         getActiveRuntimeTarget(settingsForProjectGroupOwner(get(), groupId, requestedHostId))
       const ownerHostId =
-        executionTarget?.ownerHostId ??
-        resolveProjectGroupOwnerHostId(get(), groupId, requestedHostId) ??
-        getRuntimeTargetHostId(target)
+        executionTarget?.ownerHostId ?? resolvedOwnerHostId ?? getRuntimeTargetHostId(target)
       const deleted =
         target.kind === 'local'
           ? await window.api.projectGroups.delete({ groupId })

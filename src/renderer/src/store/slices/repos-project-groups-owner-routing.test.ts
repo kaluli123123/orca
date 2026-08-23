@@ -155,6 +155,34 @@ describe('project group mutations route to the owning host', () => {
     expect(store.getState().projectGroups).toMatchObject([{ executionHostId: 'local' }])
   })
 
+  it('rejects a stale explicit hostId instead of mutating the focused same-ID group', async () => {
+    projectGroupsUpdate.mockResolvedValue({
+      ...folderScanGroup,
+      executionHostId: 'local',
+      name: 'Renamed'
+    })
+    projectGroupsDelete.mockResolvedValue(true)
+    const localGroup = { ...folderScanGroup, executionHostId: 'local' as const }
+    const store = createTestStore()
+    store.setState({
+      settings: { activeRuntimeEnvironmentId: null } as never,
+      projectGroups: [localGroup]
+    })
+
+    await expect(
+      store
+        .getState()
+        .updateProjectGroup(folderScanGroup.id, { name: 'Renamed' }, { hostId: 'runtime:missing' })
+    ).resolves.toBe(false)
+    await expect(
+      store.getState().deleteProjectGroup(folderScanGroup.id, { hostId: 'runtime:missing' })
+    ).resolves.toBe(false)
+
+    expect(projectGroupsUpdate).not.toHaveBeenCalled()
+    expect(projectGroupsDelete).not.toHaveBeenCalled()
+    expect(store.getState().projectGroups).toEqual([localGroup])
+  })
+
   it('keeps the focused host when a colliding id has no unambiguous owner', async () => {
     projectGroupsDelete.mockResolvedValue(true)
     const store = createTestStore()
