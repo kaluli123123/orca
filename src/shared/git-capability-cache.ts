@@ -16,6 +16,9 @@ export async function supportsPushAutoSetupRemote(
   capabilities: GitCapabilityCache,
   readConfigVariables: () => Promise<string>
 ): Promise<boolean> {
+  if (capabilities.isKnownSupported('push-auto-setup-remote')) {
+    return true
+  }
   return capabilities.runWithFallback(
     'push-auto-setup-remote',
     async () => {
@@ -38,6 +41,10 @@ export class GitCapabilityCache {
   private readonly retryAfterByCapability = new Map<GitCapability, number>()
   private readonly probesByCapability = new Map<GitCapability, Promise<GitCapabilityProbeOutcome>>()
   private readonly supportedCapabilities = new Set<GitCapability>()
+
+  isKnownSupported(capability: GitCapability): boolean {
+    return this.supportedCapabilities.has(capability)
+  }
 
   shouldTry(capability: GitCapability, nowMs = Date.now()): boolean {
     const retryAfterMs = this.retryAfterByCapability.get(capability)

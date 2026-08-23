@@ -143,4 +143,13 @@ describe('GitCapabilityCache', () => {
     await expect(supportsPushAutoSetupRemote(cache, readConfigVariables)).resolves.toBe(false)
     expect(readConfigVariables).toHaveBeenCalledTimes(1)
   })
+
+  it('caches a supported push.autoSetupRemote variable', async () => {
+    const cache = new GitCapabilityCache()
+    const readConfigVariables = vi.fn(async () => 'push.autoSetupRemote\n')
+
+    await expect(supportsPushAutoSetupRemote(cache, readConfigVariables)).resolves.toBe(true)
+    await expect(supportsPushAutoSetupRemote(cache, readConfigVariables)).resolves.toBe(true)
+    expect(readConfigVariables).toHaveBeenCalledTimes(1)
+  })
 })
