@@ -248,9 +248,9 @@ describe('orchestration RPC methods', () => {
         call('orchestration.check', { terminal: 'term_coord', ack: queued.id })
       ).rejects.toMatchObject({
         code: 'stale_delivery',
-        message: expect.stringContaining('deliveryId')
+        message: expect.stringContaining(`${queued.id} is a message id, not a delivery id`)
       })
-      expect(db.getUnreadMessages(`run:${activeRunId}`)).toHaveLength(1)
+      expect(db.getMessageById(queued.id)).toMatchObject({ id: queued.id, read: 0 })
     })
 
     it('acknowledges a Run Delivery before returning --peek history', async () => {
