@@ -18,6 +18,12 @@ export function sshEndpointIdentity(target: {
   if (!host) {
     return ''
   }
-  const port = typeof target.port === 'number' && Number.isFinite(target.port) ? target.port : 22
+  const port =
+    typeof target.port === 'number' &&
+    Number.isInteger(target.port) &&
+    target.port >= 1 &&
+    target.port <= 65_535
+      ? target.port
+      : 22
   return `${host}\u0000${port}\u0000${target.username?.trim().toLowerCase() ?? ''}`
 }
