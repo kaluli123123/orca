@@ -33,13 +33,14 @@ authority.
 
 ## Current Capabilities
 
-| Capability              | Preferred behavior                                | Compatibility behavior                                                                  |
-| ----------------------- | ------------------------------------------------- | --------------------------------------------------------------------------------------- |
-| `worktree-list-z`       | NUL-delimited worktree paths with `prunable` marks | Line-block parser for Git before `worktree list -z` (2.36); the `prunable`/`locked` annotations still parse on Git 2.31–2.35, and a path-existence probe restores `prunable` detection for Git before 2.31 |
-| `rev-parse-path-format` | Absolute repo metadata paths                      | Resolve legacy relative output against the scanned repo                                 |
-| `for-each-ref-exclude`  | Exclude remote HEAD before the output limit       | Request extra refs, then filter remote HEAD in Orca                                     |
-| `merge-tree-write-tree` | Derive real-merge conflicts and no-op tree proofs | Omit the conflict summary and keep conservative branch cleanup behavior before Git 2.38 |
-| `merge-tree-merge-base` | Supply the already-resolved merge base            | Use the older two-commit `merge-tree --write-tree` form                                 |
+| Capability               | Preferred behavior                                 | Compatibility behavior                                                                                                                                                                                     |
+| ------------------------ | -------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `worktree-list-z`        | NUL-delimited worktree paths with `prunable` marks | Line-block parser for Git before `worktree list -z` (2.36); the `prunable`/`locked` annotations still parse on Git 2.31–2.35, and a path-existence probe restores `prunable` detection for Git before 2.31 |
+| `rev-parse-path-format`  | Absolute repo metadata paths                       | Resolve legacy relative output against the scanned repo                                                                                                                                                    |
+| `for-each-ref-exclude`   | Exclude remote HEAD before the output limit        | Request extra refs, then filter remote HEAD in Orca                                                                                                                                                        |
+| `merge-tree-write-tree`  | Derive real-merge conflicts and no-op tree proofs  | Omit the conflict summary and keep conservative branch cleanup behavior before Git 2.38                                                                                                                    |
+| `merge-tree-merge-base`  | Supply the already-resolved merge base             | Use the older two-commit `merge-tree --write-tree` form                                                                                                                                                    |
+| `push-auto-setup-remote` | Let the first plain push create its upstream       | Show `git push --set-upstream <remote> <branch>` when `push.autoSetupRemote` is absent before Git 2.37                                                                                                     |
 
 ## Why Not `simple-git`
 
@@ -55,7 +56,8 @@ capability problem.
 
 PR checks run the capability contract against real Git 2.25.5, 2.38.1, and
 2.49.1 binaries. This spans the core-workflow baseline, the transitional
-`merge-tree --write-tree` behavior before `--merge-base`, and current Git.
+`push.autoSetupRemote` boundary, the transitional `merge-tree --write-tree`
+behavior before `--merge-base`, and current Git.
 
 Keep the unit tests alongside that matrix. They cover concurrent probes,
 native/WSL/SSH/relay isolation, and error-stream shapes that a single real

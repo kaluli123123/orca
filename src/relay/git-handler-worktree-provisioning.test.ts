@@ -416,6 +416,7 @@ describe('GitHandler', () => {
       gitMock.mockResolvedValueOnce({ stdout: '', stderr: '' }) // worktree add
       gitMock.mockResolvedValueOnce({ stdout: '', stderr: '' }) // config --local --replace-all branch.<branch>.base
       gitMock.mockRejectedValueOnce(Object.assign(new Error('key unset'), { code: 1 })) // --get
+      gitMock.mockResolvedValueOnce({ stdout: 'push.autoSetupRemote\n', stderr: '' }) // help --config
       gitMock.mockResolvedValueOnce({ stdout: '', stderr: '' }) // --local set
 
       await localDispatcher.callRequest('git.addWorktree', {
@@ -444,6 +445,7 @@ describe('GitHandler', () => {
           'refs/remotes/origin/main'
         ],
         ['config', '--get', 'push.autoSetupRemote'],
+        ['help', '--config'],
         ['config', '--local', 'push.autoSetupRemote', 'true']
       ])
       // cwd for worktree add is repoPath; cwd for config calls is targetDir.
@@ -452,6 +454,7 @@ describe('GitHandler', () => {
       expect(gitMock.mock.calls[2]?.[1]).toBe('/relay/wt')
       expect(gitMock.mock.calls[3]?.[1]).toBe('/relay/wt')
       expect(gitMock.mock.calls[4]?.[1]).toBe('/relay/wt')
+      expect(gitMock.mock.calls[5]?.[1]).toBe('/relay/wt')
     })
 
     it('checks out a selected existing local branch without creating a new branch', async () => {
@@ -478,6 +481,7 @@ describe('GitHandler', () => {
       const { localDispatcher, gitMock } = setupMockedHandler(['/relay/repo', '/relay/wt'])
       gitMock.mockResolvedValueOnce({ stdout: '', stderr: '' }) // worktree add
       gitMock.mockRejectedValueOnce(Object.assign(new Error('key unset'), { code: 1 })) // --get
+      gitMock.mockResolvedValueOnce({ stdout: 'push.autoSetupRemote\n', stderr: '' }) // help --config
       gitMock.mockResolvedValueOnce({ stdout: '', stderr: '' }) // --local set
 
       await localDispatcher.callRequest('git.addWorktree', {
@@ -491,10 +495,12 @@ describe('GitHandler', () => {
       expect(gitMock.mock.calls.map((c) => c[0])).toEqual([
         ['worktree', 'add', '/relay/wt', 'feature/test'],
         ['config', '--get', 'push.autoSetupRemote'],
+        ['help', '--config'],
         ['config', '--local', 'push.autoSetupRemote', 'true']
       ])
       expect(gitMock.mock.calls[1]?.[1]).toBe('/relay/wt')
       expect(gitMock.mock.calls[2]?.[1]).toBe('/relay/wt')
+      expect(gitMock.mock.calls[3]?.[1]).toBe('/relay/wt')
     })
 
     it('qualifies bare branch name as refs/heads/ when a same-named tag exists', async () => {
@@ -504,6 +510,7 @@ describe('GitHandler', () => {
       gitMock.mockResolvedValueOnce({ stdout: '', stderr: '' }) // worktree add
       gitMock.mockResolvedValueOnce({ stdout: '', stderr: '' }) // config --local --replace-all branch.<branch>.base
       gitMock.mockRejectedValueOnce(Object.assign(new Error('key unset'), { code: 1 })) // --get unset
+      gitMock.mockResolvedValueOnce({ stdout: 'push.autoSetupRemote\n', stderr: '' }) // help --config
       gitMock.mockResolvedValueOnce({ stdout: '', stderr: '' }) // --local set
 
       await localDispatcher.callRequest('git.addWorktree', {
@@ -518,6 +525,7 @@ describe('GitHandler', () => {
         ['worktree', 'add', '--no-track', '-b', 'feature/disambig', '/relay/wt', 'refs/heads/main'],
         ['config', '--local', '--replace-all', 'branch.feature/disambig.base', 'refs/heads/main'],
         ['config', '--get', 'push.autoSetupRemote'],
+        ['help', '--config'],
         ['config', '--local', 'push.autoSetupRemote', 'true']
       ])
     })
@@ -529,6 +537,7 @@ describe('GitHandler', () => {
       gitMock.mockResolvedValueOnce({ stdout: '', stderr: '' }) // worktree add
       gitMock.mockResolvedValueOnce({ stdout: '', stderr: '' }) // config --local --replace-all branch.<branch>.base
       gitMock.mockRejectedValueOnce(Object.assign(new Error('key unset'), { code: 1 })) // --get unset
+      gitMock.mockResolvedValueOnce({ stdout: 'push.autoSetupRemote\n', stderr: '' }) // help --config
       gitMock.mockResolvedValueOnce({ stdout: '', stderr: '' }) // --local set
 
       await localDispatcher.callRequest('git.addWorktree', {
@@ -558,6 +567,7 @@ describe('GitHandler', () => {
           'refs/heads/release/main'
         ],
         ['config', '--get', 'push.autoSetupRemote'],
+        ['help', '--config'],
         ['config', '--local', 'push.autoSetupRemote', 'true']
       ])
     })
@@ -568,6 +578,7 @@ describe('GitHandler', () => {
       gitMock.mockResolvedValueOnce({ stdout: '', stderr: '' }) // worktree add
       gitMock.mockResolvedValueOnce({ stdout: '', stderr: '' }) // config --local --replace-all branch.<branch>.base
       gitMock.mockRejectedValueOnce(Object.assign(new Error('key unset'), { code: 1 })) // --get
+      gitMock.mockResolvedValueOnce({ stdout: 'push.autoSetupRemote\n', stderr: '' }) // help --config
       gitMock.mockResolvedValueOnce({ stdout: '', stderr: '' }) // --local set
 
       await localDispatcher.callRequest('git.addWorktree', {
@@ -674,6 +685,7 @@ describe('GitHandler', () => {
       gitMock.mockResolvedValueOnce({ stdout: '', stderr: '' }) // worktree add
       gitMock.mockResolvedValueOnce({ stdout: '', stderr: '' }) // config --local --replace-all branch.<branch>.base
       gitMock.mockRejectedValueOnce(Object.assign(new Error('key unset'), { code: 1 })) // --get unset
+      gitMock.mockResolvedValueOnce({ stdout: 'push.autoSetupRemote\n', stderr: '' }) // help --config
       gitMock.mockRejectedValueOnce(new Error('config locked')) // --local set fails
 
       const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})

@@ -1,5 +1,9 @@
 import { describe, expect, it, vi } from 'vitest'
-import { GIT_CAPABILITY_RETRY_INTERVAL_MS, GitCapabilityCache } from './git-capability-cache'
+import {
+  GIT_CAPABILITY_RETRY_INTERVAL_MS,
+  GitCapabilityCache,
+  supportsPushAutoSetupRemote
+} from './git-capability-cache'
 
 describe('GitCapabilityCache', () => {
   it('retries a capability after the compatibility interval', () => {
@@ -129,5 +133,14 @@ describe('GitCapabilityCache', () => {
       )
     ).resolves.toBe('cached-fallback')
     expect(laterPreferred).not.toHaveBeenCalled()
+  })
+
+  it('caches a missing push.autoSetupRemote variable', async () => {
+    const cache = new GitCapabilityCache()
+    const readConfigVariables = vi.fn(async () => 'core.autocrlf\n')
+
+    await expect(supportsPushAutoSetupRemote(cache, readConfigVariables)).resolves.toBe(false)
+    await expect(supportsPushAutoSetupRemote(cache, readConfigVariables)).resolves.toBe(false)
+    expect(readConfigVariables).toHaveBeenCalledTimes(1)
   })
 })

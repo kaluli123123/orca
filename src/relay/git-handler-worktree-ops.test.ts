@@ -31,12 +31,16 @@ describe('addWorktreeOp', () => {
   it('writes durable branch base config after creating an SSH new-branch worktree', async () => {
     const git = vi.fn<GitExec>(async () => ({ stdout: '', stderr: '' }))
 
-    await addWorktreeOp(git, {
-      repoPath: '/repo',
-      branchName: 'feature/test',
-      targetDir: '/repo-feature',
-      base: 'origin/main'
-    })
+    await addWorktreeOp(
+      git,
+      {
+        repoPath: '/repo',
+        branchName: 'feature/test',
+        targetDir: '/repo-feature',
+        base: 'origin/main'
+      },
+      new GitCapabilityCache()
+    )
 
     expect(git.mock.calls.map((call) => call[0])).toEqual([
       ['rev-parse', '--verify', '--quiet', 'refs/remotes/origin/main^{commit}'],
@@ -75,13 +79,17 @@ describe('addWorktreeOp', () => {
   it('does not write branch base config when checking out an existing SSH branch', async () => {
     const git = vi.fn<GitExec>(async () => ({ stdout: '', stderr: '' }))
 
-    await addWorktreeOp(git, {
-      repoPath: '/repo',
-      branchName: 'feature/test',
-      targetDir: '/repo-feature',
-      base: 'origin/main',
-      checkoutExistingBranch: true
-    })
+    await addWorktreeOp(
+      git,
+      {
+        repoPath: '/repo',
+        branchName: 'feature/test',
+        targetDir: '/repo-feature',
+        base: 'origin/main',
+        checkoutExistingBranch: true
+      },
+      new GitCapabilityCache()
+    )
 
     expect(git.mock.calls.map((call) => call[0])).toEqual([
       ['worktree', 'add', '/repo-feature', 'feature/test'],
@@ -96,31 +104,76 @@ describe('addWorktreeOp', () => {
       if (args[0] === 'config' && args[1] === '--get') {
         throw Object.assign(new Error('key unset'), { code: 1 })
       }
-      return { stdout: '', stderr: '' }
+      return {
+        stdout: args[0] === 'help' ? 'push.autoSetupRemote\n' : '',
+        stderr: ''
+      }
     })
 
-    await addWorktreeOp(git, {
-      repoPath: '/repo',
-      branchName: 'feature/test',
-      targetDir: '/repo-feature',
-      checkoutExistingBranch: true
-    })
+    await addWorktreeOp(
+      git,
+      {
+        repoPath: '/repo',
+        branchName: 'feature/test',
+        targetDir: '/repo-feature',
+        checkoutExistingBranch: true
+      },
+      new GitCapabilityCache()
+    )
 
     expect(git.mock.calls.map((call) => call[0])).toEqual([
       ['worktree', 'add', '/repo-feature', 'feature/test'],
       ['config', '--get', 'push.autoSetupRemote'],
+      ['help', '--config'],
       ['config', '--local', 'push.autoSetupRemote', 'true']
     ])
+  })
+
+  it('shows the explicit first-push command when remote Git lacks push.autoSetupRemote', async () => {
+    const git = vi.fn<GitExec>(async (args) => {
+      if (args[0] === 'config' && args[1] === '--get') {
+        throw Object.assign(new Error('key unset'), { code: 1 })
+      }
+      return { stdout: args[0] === 'help' ? 'core.autocrlf\n' : '', stderr: '' }
+    })
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {})
+
+    await addWorktreeOp(
+      git,
+      {
+        repoPath: '/repo',
+        branchName: 'feature/test',
+        targetDir: '/repo-feature',
+        checkoutExistingBranch: true
+      },
+      new GitCapabilityCache()
+    )
+
+    expect(git.mock.calls.map((call) => call[0])).toContainEqual(['help', '--config'])
+    expect(git.mock.calls.map((call) => call[0])).not.toContainEqual([
+      'config',
+      '--local',
+      'push.autoSetupRemote',
+      'true'
+    ])
+    expect(warnSpy).toHaveBeenCalledWith(
+      expect.stringContaining('git push --set-upstream <remote> <branch>')
+    )
+    warnSpy.mockRestore()
   })
 
   it('does not write branch base config when SSH creation has no base', async () => {
     const git = vi.fn<GitExec>(async () => ({ stdout: '', stderr: '' }))
 
-    await addWorktreeOp(git, {
-      repoPath: '/repo',
-      branchName: 'feature/no-base',
-      targetDir: '/repo-feature'
-    })
+    await addWorktreeOp(
+      git,
+      {
+        repoPath: '/repo',
+        branchName: 'feature/no-base',
+        targetDir: '/repo-feature'
+      },
+      new GitCapabilityCache()
+    )
 
     expect(git.mock.calls.map((call) => call[0])).toEqual([
       ['worktree', 'add', '--no-track', '-b', 'feature/no-base', '/repo-feature'],
@@ -138,12 +191,16 @@ describe('addWorktreeOp', () => {
     })
 
     await expect(
-      addWorktreeOp(git, {
-        repoPath: '/repo',
-        branchName: 'feature/test',
-        targetDir: '/repo-feature',
-        base: 'origin/main'
-      })
+      addWorktreeOp(
+        git,
+        {
+          repoPath: '/repo',
+          branchName: 'feature/test',
+          targetDir: '/repo-feature',
+          base: 'origin/main'
+        },
+        new GitCapabilityCache()
+      )
     ).resolves.toBeUndefined()
 
     expect(warnSpy).toHaveBeenCalledWith(
