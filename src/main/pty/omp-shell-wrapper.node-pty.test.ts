@@ -302,10 +302,12 @@ exit 0
       expect(output).not.toMatch(/syntax error/)
 
       const capture = readFileSync(captureFile, 'utf8')
-      expect(capture).toContain('ARG1=--extension')
-      expect(capture).toContain(`ARG2=${statusExtension}`)
-      expect(capture).toContain('ARG3=--flag')
-      expect(capture).toContain('ARG4=userarg')
+      expect(capture.split('\n').filter((line) => line.startsWith('ARG'))).toEqual([
+        'ARG1=--extension',
+        `ARG2=${statusExtension}`,
+        'ARG3=--flag',
+        'ARG4=userarg'
+      ])
     }
   )
 
