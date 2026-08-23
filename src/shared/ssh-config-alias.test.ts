@@ -45,8 +45,17 @@ describe('sshEndpointIdentity', () => {
     expect(sshEndpointIdentity({ port: 22, username: 'me' })).toBe('')
   })
 
-  it('ignores a non-finite port rather than keying on NaN', () => {
-    expect(sshEndpointIdentity({ host: 'box', port: Number.NaN, username: 'me' })).toBe(
+  it.each([Number.NaN, 0, -1, 1.5, 65_536])(
+    'normalizes invalid port %s to the SSH default',
+    (port) => {
+      expect(sshEndpointIdentity({ host: 'box', port, username: 'me' })).toBe(
+        sshEndpointIdentity({ host: 'box', port: 22, username: 'me' })
+      )
+    }
+  )
+
+  it.each([1, 65_535])('keeps valid boundary port %s', (port) => {
+    expect(sshEndpointIdentity({ host: 'box', port, username: 'me' })).not.toBe(
       sshEndpointIdentity({ host: 'box', port: 22, username: 'me' })
     )
   })
