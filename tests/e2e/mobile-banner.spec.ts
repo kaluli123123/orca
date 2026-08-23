@@ -107,28 +107,24 @@ test('browser Take back releases its retained driver state', async ({
     await waitForActiveWorktree(orcaPage)
     const offer = await createRuntimeDesktopPairingOffer(orcaPage)
     const userDataDir = await electronApp.evaluate(({ app }) => app.getPath('userData'))
-    const hostClient = new RuntimeClient(userDataDir, 5_000)
+    const hostClient = new RuntimeClient(userDataDir)
     client = await launchPairedElectronClient(offer, testInfo, 'Browser driver regression')
-    let worktreeId: string | null = null
-    await expect
-      .poll(
-        async () => {
-          worktreeId = await client!.page.evaluate(
-            (path) =>
-              window.__store
-                ?.getState()
-                .allWorktrees()
-                .find((worktree) => worktree.path === path)?.id ?? null,
-            testRepoPath
-          )
-          return worktreeId
-        },
-        {
-          timeout: 60_000,
-          message: 'paired client never received the host worktree'
-        }
+    const findWorktreeId = (): Promise<string | null> =>
+      client!.page.evaluate(
+        (path) =>
+          window.__store
+            ?.getState()
+            .allWorktrees()
+            .find((worktree) => worktree.path === path)?.id ?? null,
+        testRepoPath
       )
+    await expect
+      .poll(findWorktreeId, {
+        timeout: 60_000,
+        message: 'paired client never received the host worktree'
+      })
       .not.toBeNull()
+    const worktreeId = await findWorktreeId()
     if (!worktreeId) {
       throw new Error('Paired worktree disappeared after discovery')
     }
