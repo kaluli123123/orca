@@ -39,7 +39,8 @@ describe('addWorktreeOp', () => {
         targetDir: '/repo-feature',
         base: 'origin/main'
       },
-      new GitCapabilityCache()
+      new GitCapabilityCache(),
+      'linux'
     )
 
     expect(git.mock.calls.map((call) => call[0])).toEqual([
@@ -88,7 +89,8 @@ describe('addWorktreeOp', () => {
         base: 'origin/main',
         checkoutExistingBranch: true
       },
-      new GitCapabilityCache()
+      new GitCapabilityCache(),
+      'linux'
     )
 
     expect(git.mock.calls.map((call) => call[0])).toEqual([
@@ -172,12 +174,87 @@ describe('addWorktreeOp', () => {
         branchName: 'feature/no-base',
         targetDir: '/repo-feature'
       },
-      new GitCapabilityCache()
+      new GitCapabilityCache(),
+      'linux'
     )
 
     expect(git.mock.calls.map((call) => call[0])).toEqual([
       ['worktree', 'add', '--no-track', '-b', 'feature/no-base', '/repo-feature'],
       ['config', '--get', 'push.autoSetupRemote']
+    ])
+  })
+
+  it('enables long paths when the SSH execution host is Windows', async () => {
+    // Why: only the host's OS matters — a macOS client can drive a Windows SSH host,
+    // which hits the same MAX_PATH ceiling (issue #15785).
+    const git = vi.fn<GitExec>(async () => ({ stdout: '', stderr: '' }))
+
+    await addWorktreeOp(
+      git,
+      {
+        repoPath: 'C:\\repo',
+        branchName: 'feature/test',
+        targetDir: 'C:\\repo-feature',
+        checkoutExistingBranch: true
+      },
+      new GitCapabilityCache(),
+      'win32'
+    )
+
+    expect(git.mock.calls.map((call) => call[0])).toEqual([
+      ['-c', 'core.longpaths=true', 'worktree', 'add', 'C:\\repo-feature', 'feature/test'],
+      ['config', '--get', 'push.autoSetupRemote']
+    ])
+  })
+
+  it('keeps --no-checkout ahead of -b once the long-path prefix is present', async () => {
+    const git = vi.fn<GitExec>(async () => ({ stdout: '', stderr: '' }))
+
+    await addWorktreeOp(
+      git,
+      {
+        repoPath: 'C:\\repo',
+        branchName: 'feature/test',
+        targetDir: 'C:\\repo-feature',
+        noCheckout: true
+      },
+      new GitCapabilityCache(),
+      'win32'
+    )
+
+    expect(git.mock.calls[0][0]).toEqual([
+      '-c',
+      'core.longpaths=true',
+      'worktree',
+      'add',
+      '--no-track',
+      '--no-checkout',
+      '-b',
+      'feature/test',
+      'C:\\repo-feature'
+    ])
+  })
+
+  it('omits the long-path option on a WSL UNC target on a Windows SSH host', async () => {
+    const git = vi.fn<GitExec>(async () => ({ stdout: '', stderr: '' }))
+
+    await addWorktreeOp(
+      git,
+      {
+        repoPath: '\\\\wsl.localhost\\Ubuntu\\home\\dev\\repo',
+        branchName: 'feature/test',
+        targetDir: '\\\\wsl.localhost\\Ubuntu\\home\\dev\\repo-feature',
+        checkoutExistingBranch: true
+      },
+      new GitCapabilityCache(),
+      'win32'
+    )
+
+    expect(git.mock.calls[0][0]).toEqual([
+      'worktree',
+      'add',
+      '\\\\wsl.localhost\\Ubuntu\\home\\dev\\repo-feature',
+      'feature/test'
     ])
   })
 
@@ -199,7 +276,8 @@ describe('addWorktreeOp', () => {
           targetDir: '/repo-feature',
           base: 'origin/main'
         },
-        new GitCapabilityCache()
+        new GitCapabilityCache(),
+        'linux'
       )
     ).resolves.toBeUndefined()
 

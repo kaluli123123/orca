@@ -5,6 +5,7 @@ import {
   type GitCapabilityCache
 } from '../shared/git-capability-cache'
 import { resolveWorktreeAddBaseRef } from '../shared/worktree/base-ref'
+import { windowsLongPathGitArgs } from '../shared/windows-long-path-git-args'
 import type { GitExec } from './git-handler-ops'
 export { removeWorktreeOp } from './git-handler-worktree-remove'
 export { readRelayWorktreeList } from './git-handler-worktree-list'
@@ -36,7 +37,9 @@ async function persistRelayWorktreeCreationBase(
 export async function addWorktreeOp(
   git: GitExec,
   params: Record<string, unknown>,
-  capabilities: GitCapabilityCache
+  capabilities: GitCapabilityCache,
+  // Why: only the execution host's OS matters here — the client may be macOS while the SSH host is Windows.
+  platform: NodeJS.Platform = process.platform
 ): Promise<void> {
   const repoPath = params.repoPath as string
   const branchName = params.branchName as string
@@ -71,11 +74,14 @@ export async function addWorktreeOp(
         })
       : undefined
 
+  // Why: a Windows SSH host hits the same MAX_PATH ceiling as a local Windows checkout.
+  const longPathArgs = windowsLongPathGitArgs(targetDir, platform)
   const args = checkoutExistingBranch
-    ? ['worktree', 'add', targetDir, branchName]
-    : ['worktree', 'add', '--no-track', '-b', branchName, targetDir]
+    ? [...longPathArgs, 'worktree', 'add', targetDir, branchName]
+    : [...longPathArgs, 'worktree', 'add', '--no-track', '-b', branchName, targetDir]
   if (!checkoutExistingBranch && noCheckout) {
-    args.splice(3, 0, '--no-checkout')
+    // Why: offset by the global-option prefix so --no-checkout still lands before -b.
+    args.splice(longPathArgs.length + 3, 0, '--no-checkout')
   }
   if (effectiveBase) {
     args.push(effectiveBase)
@@ -98,12 +104,7 @@ export async function addWorktreeOp(
   await ensureRelayPushAutoSetupRemote(git, targetDir, capabilities)
 }
 
-// Why: best-effort write so a deliberate user value (any scope) is
-// preserved and a real read failure is not silently overwritten. Final
-// catch is warn-only — if the remote host's git is <2.37 the value is
-// ignored at push time and the user falls back to `git push -u` once.
-// (Note: it is the SSH host's git that matters here, not the client's.)
-// Mirrors local addWorktree exactly.
+// Why: preserve any user value; unsupported remote Git gets explicit first-push guidance.
 async function ensureRelayPushAutoSetupRemote(
   git: GitExec,
   targetDir: string,
