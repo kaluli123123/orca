@@ -52,7 +52,9 @@ describe('daemon Bash shell-ready rcfile', () => {
         String.raw`__orca_osc133_epilogue() { printf "EPILOGUE_RAN\n"; }`
       )
 
-      expect([hookOutput, 'EPILOGUE_RAN'].every((value) => output.includes(value))).toBe(true)
+      expect(output).toContain(hookOutput)
+      expect(output).toContain('EPILOGUE_RAN')
+      expect(output.indexOf(hookOutput)).toBeLessThan(output.indexOf('EPILOGUE_RAN'))
     }
   })
 

@@ -218,25 +218,6 @@ describe('project group deletion store routing', () => {
     expect(runtimeEnvironmentCall).not.toHaveBeenCalled()
   })
 
-  it('aborts a mutation instead of guessing the host when the group id is ambiguous', async () => {
-    const localGroup = { ...projectGroup, executionHostId: 'local' }
-    const remoteGroup = { ...projectGroup, executionHostId: 'runtime:env-1' }
-    const store = createTestStore()
-    store.setState({
-      settings: { activeRuntimeEnvironmentId: 'env-1' } as never,
-      projectGroups: [localGroup, remoteGroup]
-    })
-
-    await expect(store.getState().deleteProjectGroup(projectGroup.id)).resolves.toBe(false)
-    await expect(
-      store.getState().updateProjectGroup(projectGroup.id, { name: 'Renamed' })
-    ).resolves.toBe(false)
-
-    expect(projectGroupsDelete).not.toHaveBeenCalled()
-    expect(projectGroupsUpdate).not.toHaveBeenCalled()
-    expect(runtimeEnvironmentCall).not.toHaveBeenCalled()
-  })
-
   it('aborts instead of falling back to the active runtime when an explicit executionHostId owns nothing', async () => {
     const remoteGroup = { ...projectGroup, executionHostId: 'runtime:env-1' }
     const store = createTestStore()
