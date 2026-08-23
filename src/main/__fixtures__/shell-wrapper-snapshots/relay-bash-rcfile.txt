@@ -51,14 +51,7 @@ __orca_omp() {
   fi
 }
 if [[ -n "${ORCA_OMP_STATUS_EXTENSION:-}" ]]; then
-  # Why: an `alias omp=...` from the user's rc file expands the word "omp"
-  # at parse time, turning `omp() {` into a syntax error before this line
-  # ever runs. The `function` keyword form is not alias-expanded, so it
-  # defines cleanly either way. Do not `unalias omp` here: bash resolves a
-  # surviving alias once, then falls through to this function for the
-  # expanded command, so a later `omp userarg` still reaches `__orca_omp`
-  # with the user's alias flags intact (e.g. `alias omp="omp --flag"` yields
-  # args `--flag userarg`). Unaliasing would silently drop those flags.
+  # Why: function avoids alias expansion while retaining user alias flags; unaliasing would drop them.
   function omp { __orca_omp "$@"; }
 fi
 

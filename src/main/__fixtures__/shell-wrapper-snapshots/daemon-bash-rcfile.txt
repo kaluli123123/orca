@@ -59,36 +59,21 @@ __orca_omp() {
   fi
 }
 if [[ -n "${ORCA_OMP_STATUS_EXTENSION:-}" ]]; then
-  # Why: an `alias omp=...` from the user's rc file expands the word "omp"
-  # at parse time, turning `omp() {` into a syntax error before this line
-  # ever runs. The `function` keyword form is not alias-expanded, so it
-  # defines cleanly either way. Do not `unalias omp` here: bash resolves a
-  # surviving alias once, then falls through to this function for the
-  # expanded command, so a later `omp userarg` still reaches `__orca_omp`
-  # with the user's alias flags intact (e.g. `alias omp="omp --flag"` yields
-  # args `--flag userarg`). Unaliasing would silently drop those flags.
+  # Why: function avoids alias expansion while retaining user alias flags; unaliasing would drop them.
   function omp { __orca_omp "$@"; }
 fi
 
 # Why: Codex must keep using Orca's runtime CODEX_HOME after profile scripts.
 [[ -n "${ORCA_CODEX_HOME:-}" ]] && export CODEX_HOME="${ORCA_CODEX_HOME}"
 # Why: a typed alias expands inside the shell, after pane launch prep.
-# Why: `command -v codex` returns the alias definition text (not empty) when
-# codex is aliased, so a plain lookup makes `-x` false and the guard body
-# below never runs — silently skipping the preflight for exactly the users
-# issue #15830 is about. Unalias inside this command-substitution subshell so
-# the lookup resolves the real binary; that unalias does not affect the
-# alias in the outer shell.
-__orca_codex_binary="$(
-  unalias codex 2>/dev/null || :
-  command -v codex 2>/dev/null || :
-)"
+# Why unalias inside the substitution: an alias named codex makes command -v
+# report the alias text, and the subshell leaves the user's own alias intact.
+# Why || : twice — zsh alone aborts inside the substitution, but every shell's
+# assignment adopts its exit status, so an absent codex trips set -e in bash too.
+__orca_codex_binary="$(unalias codex 2>/dev/null || :; command -v codex 2>/dev/null || :)"
 if [[ -n "${ORCA_CODEX_LAUNCH_PREFLIGHT:-}" && -n "${__orca_codex_binary:-}" && -x "${__orca_codex_binary}" ]]; then
-  # Why: an `alias codex=...` from the user's rc file expands the word
-  # "codex" at parse time, turning `codex() {` into a syntax error before
-  # this line ever runs. Clear the alias and use the `function` keyword
-  # form, which bash does not alias-expand, as a second, independent guard.
-  unalias codex 2>/dev/null || :
+  # Why the function reserved word: it suppresses alias expansion of the name,
+  # which otherwise rewrites this header at parse time and aborts the whole file.
   function codex {
     "${ORCA_CODEX_LAUNCH_PREFLIGHT}" agent hooks prepare-codex >/dev/null 2>&1 || :
     command codex "$@"
