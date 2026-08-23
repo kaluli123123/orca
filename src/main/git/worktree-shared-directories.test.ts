@@ -1,8 +1,8 @@
 import { execFileSync } from 'node:child_process'
 import { lstatSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
-import { devNull, tmpdir } from 'node:os'
+import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   clearConfiguredWorktreeSharedDirectoriesCacheForTests,
   getConfiguredWorktreeSharedDirectories,
@@ -16,15 +16,17 @@ import {
 import { assertWorktreeCleanForRemoval } from './worktree'
 import { getStatus } from './status'
 
+const CONFIG_ISOLATION_DIR = mkdtempSync(join(tmpdir(), 'orca-shared-dirs-noconfig-'))
+const ABSENT_GIT_CONFIG = join(CONFIG_ISOLATION_DIR, 'absent.gitconfig')
+
+afterAll(() => {
+  rmSync(CONFIG_ISOLATION_DIR, { recursive: true, force: true })
+})
+
 const git = (args: string[], cwd: string): void => {
   execFileSync('git', args, {
     cwd,
-    stdio: 'ignore',
-    env: {
-      ...process.env,
-      GIT_CONFIG_GLOBAL: devNull,
-      GIT_CONFIG_SYSTEM: devNull
-    }
+    stdio: 'ignore'
   })
 }
 
@@ -37,6 +39,8 @@ describe('resolveWorktreeSharedDirectories', () => {
   }
 
   beforeEach(() => {
+    vi.stubEnv('GIT_CONFIG_GLOBAL', ABSENT_GIT_CONFIG)
+    vi.stubEnv('GIT_CONFIG_SYSTEM', ABSENT_GIT_CONFIG)
     clearConfiguredWorktreeSharedDirectoriesCacheForTests()
     repo = mkdtempSync(join(tmpdir(), 'orca-shared-dirs-'))
     git(['init', '-q'], repo)
@@ -52,6 +56,7 @@ describe('resolveWorktreeSharedDirectories', () => {
   afterEach(() => {
     warn.mockRestore()
     rmSync(repo, { recursive: true, force: true })
+    vi.unstubAllEnvs()
   })
 
   it('returns gitignored directories listed under worktree.sharedDirectories', async () => {
