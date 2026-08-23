@@ -11,6 +11,7 @@ import {
 } from './codex-shell-launch-preflight'
 
 const roots: string[] = []
+const bashAvailable = process.platform !== 'win32' && existsSync('/bin/bash')
 const fishAvailable = spawnSync('fish', ['--version']).status === 0
 const pwshAvailable =
   spawnSync('pwsh', ['-NoLogo', '-NoProfile', '-Command', 'exit 0']).status === 0
@@ -60,7 +61,7 @@ function runAliasLaunch(
       encoding: 'utf-8',
       env: {
         ...process.env,
-        PATH: `${bin}:${process.env.PATH ?? ''}`,
+        PATH: `${bin}${delimiter}${process.env.PATH ?? ''}`,
         CODEX_HOME: home,
         ORCA_CODEX_HOME: home,
         ORCA_CODEX_LAUNCH_PREFLIGHT: join(bin, 'orca-test')
@@ -75,7 +76,7 @@ afterEach(() => {
   }
 })
 
-describe.skipIf(process.platform === 'win32')('Codex shell launch preflight', () => {
+describe.skipIf(!bashAvailable)('Codex shell launch preflight', () => {
   it('repairs trust invalidated after shell creation before an alias launches Codex', () => {
     const beforeRoot = mkdtempSync(join(tmpdir(), 'orca-codex-shell-before-'))
     const afterRoot = mkdtempSync(join(tmpdir(), 'orca-codex-shell-after-'))
@@ -157,7 +158,7 @@ describe.skipIf(process.platform === 'win32')('Codex shell launch preflight', ()
         encoding: 'utf-8',
         env: {
           ...process.env,
-          PATH: `${bin}:${process.env.PATH ?? ''}`,
+          PATH: `${bin}${delimiter}${process.env.PATH ?? ''}`,
           ORCA_CODEX_LAUNCH_PREFLIGHT: join(bin, 'orca-test')
         }
       }
@@ -394,7 +395,7 @@ describe('Codex shell launch preflight command', () => {
 
 // Why: the resolved value is now an absolute path, and app bundles (macOS) and
 // Program Files (Windows) both put spaces in it.
-describe.skipIf(process.platform === 'win32')('Codex preflight paths containing spaces', () => {
+describe.skipIf(!bashAvailable)('Codex preflight paths containing spaces', () => {
   function writeSpacedPreflight(root: string): { preflightPath: string; markerPath: string } {
     const dir = join(root, 'Orca Dev.app', 'Contents', 'Resources', 'bin')
     mkdirSync(dir, { recursive: true })
