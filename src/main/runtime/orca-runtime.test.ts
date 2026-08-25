@@ -1282,6 +1282,13 @@ function setInMemoryOrchestrationMessages(
   runtime.setOrchestrationDb(db as unknown as OrchestrationDb)
 }
 
+function pendingMailPointerRepoints(runtime: OrcaRuntimeService): number {
+  const internals = runtime as unknown as {
+    mailPointerRepointScheduler: { pendingCount: number }
+  }
+  return internals.mailPointerRepointScheduler.pendingCount
+}
+
 function bindSinglePtyRun(db: InMemoryOrchestrationMessages, terminalHandle: string): string {
   db.setRun({
     id: 'run_test',
@@ -18308,6 +18315,111 @@ describe('OrcaRuntimeService', () => {
     expect(read.tail.join('\n')).not.toContain('Stale TUI')
   })
 
+  it('rejects a provider visible frame after live non-mode-switch output advances', async () => {
+    type Snapshot = {
+      data: string
+      cols: number
+      rows: number
+      seq: number
+      source: 'headless'
+      alternateScreen: boolean
+    }
+    let resolveSnapshot!: (snapshot: Snapshot) => void
+    const serializeProviderBuffer = vi.fn(
+      () =>
+        new Promise<Snapshot>((resolve) => {
+          resolveSnapshot = resolve
+        })
+    )
+    const runtime = new OrcaRuntimeService(store)
+    runtime.setPtyController({
+      write: () => true,
+      kill: () => true,
+      getForegroundProcess: async () => null,
+      serializeProviderBuffer,
+      hasRendererSerializer: () => false
+    })
+    syncSinglePty(runtime)
+    runtime.onPtyData('pty-1', 'shell history\r\n', 100)
+    runtime.synchronizePtyOutputSequenceFromProvider(
+      'pty-1',
+      { value: 900, generation: 'continued' },
+      0
+    )
+    const [terminal] = (await runtime.listTerminals()).terminals
+
+    const readPromise = runtime.readTerminal(terminal.handle)
+    await vi.waitFor(() => expect(serializeProviderBuffer).toHaveBeenCalledOnce())
+    runtime.onPtyData('pty-1', 'live progress\r\n', 101)
+    resolveSnapshot({
+      data: '\x1b[?1049h\x1b[2J\x1b[HStale Ready screen\r\n',
+      cols: 80,
+      rows: 24,
+      seq: 900,
+      source: 'headless',
+      alternateScreen: true
+    })
+
+    const read = await readPromise
+    expect(read.tail).toEqual(['shell history'])
+    expect(read.tail.join('\n')).not.toContain('Stale Ready screen')
+  })
+
+  it('rejects a full provider screen frame after live output advances', async () => {
+    type Snapshot = {
+      data: string
+      scrollbackAnsi: string
+      cols: number
+      rows: number
+      seq: number
+      source: 'headless'
+      alternateScreen: boolean
+    }
+    let resolveSnapshot!: (snapshot: Snapshot) => void
+    const serializeProviderBuffer = vi
+      .fn()
+      .mockResolvedValueOnce(null)
+      .mockImplementationOnce(
+        () =>
+          new Promise<Snapshot>((resolve) => {
+            resolveSnapshot = resolve
+          })
+      )
+    const runtime = new OrcaRuntimeService(store)
+    runtime.setPtyController({
+      write: () => true,
+      kill: () => true,
+      getForegroundProcess: async () => null,
+      serializeProviderBuffer,
+      hasRendererSerializer: () => false
+    })
+    syncSinglePty(runtime)
+    runtime.onPtyData('pty-1', 'shell history\r\n', 100)
+    runtime.synchronizePtyOutputSequenceFromProvider(
+      'pty-1',
+      { value: 900, generation: 'continued' },
+      0
+    )
+    const [terminal] = (await runtime.listTerminals()).terminals
+
+    const readPromise = runtime.readTerminal(terminal.handle, { screen: true })
+    await vi.waitFor(() => expect(serializeProviderBuffer).toHaveBeenCalledTimes(2))
+    runtime.onPtyData('pty-1', 'live progress\r\n', 101)
+    resolveSnapshot({
+      data: '\x1b[?1049h\x1b[2J\x1b[HStale full screen\r\n',
+      scrollbackAnsi: '',
+      cols: 80,
+      rows: 24,
+      seq: 900,
+      source: 'headless',
+      alternateScreen: true
+    })
+
+    const read = await readPromise
+    expect(read.source).toBe('screen-unavailable')
+    expect(read.tail.join('\n')).not.toContain('Stale full screen')
+  })
+
   it('shares one provider snapshot between concurrent read and show calls', async () => {
     type Snapshot = {
       data: string
@@ -20557,16 +20669,22 @@ describe('OrcaRuntimeService', () => {
     } as unknown as OrchestrationDb)
     const write = vi.fn(() => true)
     const kill = vi.fn(() => true)
-    const serializeProviderBuffer = vi.fn().mockResolvedValue({
-      data: '',
-      scrollbackAnsi:
-        ' >_ OpenAI Codex (v0.131.0)\r\n model:       gpt-5.5 high\r\n directory:   /repo\r\n',
-      cols: 80,
-      rows: 24,
-      seq: 100,
-      source: 'headless' as const,
-      alternateScreen: false
-    })
+    const READY_SCREEN =
+      ' >_ OpenAI Codex (v0.131.0)\r\n model:       gpt-5.5 high\r\n directory:   /repo\r\n'
+    // Why scrollbackRows-aware: a visible-only request gets the grid in `data`;
+    // a scrollback request gets history. Collapsing the two would let a test
+    // pass on evidence the caller never asked for.
+    const serializeProviderBuffer = vi
+      .fn()
+      .mockImplementation(async (_ptyId: string, opts?: { scrollbackRows?: number }) => ({
+        data: opts?.scrollbackRows === 0 ? READY_SCREEN : '',
+        scrollbackAnsi: opts?.scrollbackRows === 0 ? '' : READY_SCREEN,
+        cols: 80,
+        rows: 24,
+        seq: 100,
+        source: 'headless' as const,
+        alternateScreen: false
+      }))
     runtime.setPtyController({
       write,
       kill,
@@ -20650,9 +20768,50 @@ describe('OrcaRuntimeService', () => {
     await expect(
       runtime.waitForTerminal(terminal.handle, { condition: 'tui-idle', timeoutMs: 100 })
     ).resolves.toMatchObject({ satisfied: true })
+    // Why: the ready banner stays in scrollback for the whole session, so a
+    // working grid must not inherit idleness from its own history (#15569 review).
     serializeProviderBuffer.mockResolvedValueOnce({
-      data: '',
-      scrollbackAnsi: 'Do you trust this workspace directory?\r\n1. Yes\r\n2. No\r\n',
+      data: '  working on it (12s)\r\n  Esc to interrupt\r\n',
+      scrollbackAnsi: READY_SCREEN,
+      cols: 80,
+      rows: 24,
+      seq: 101,
+      source: 'headless' as const,
+      alternateScreen: false
+    })
+    await expect(
+      runtime.waitForTerminal(terminal.handle, { condition: 'tui-idle', timeoutMs: 50 })
+    ).rejects.toThrow('timeout')
+    const lateReadySnapshot = deferred<{
+      data: string
+      scrollbackAnsi: string
+      cols: number
+      rows: number
+      seq: number
+      source: 'headless'
+      alternateScreen: boolean
+    }>()
+    const snapshotSequence = runtime.getPtyOutputSequence('pty-legacy')
+    serializeProviderBuffer.mockImplementationOnce(() => lateReadySnapshot.promise)
+    const staleReadyWait = runtime.waitForTerminal(terminal.handle, {
+      condition: 'tui-idle',
+      timeoutMs: 50
+    })
+    await vi.waitFor(() => expect(serializeProviderBuffer).toHaveBeenCalledTimes(4))
+    runtime.onPtyData('pty-legacy', '\x1b[H', Date.now())
+    lateReadySnapshot.resolve({
+      data: READY_SCREEN,
+      scrollbackAnsi: '',
+      cols: 80,
+      rows: 24,
+      seq: snapshotSequence,
+      source: 'headless',
+      alternateScreen: false
+    })
+    await expect(staleReadyWait).rejects.toThrow('timeout')
+    serializeProviderBuffer.mockResolvedValueOnce({
+      data: 'Do you trust this workspace directory?\r\n1. Yes\r\n2. No\r\n',
+      scrollbackAnsi: '',
       cols: 80,
       rows: 24,
       seq: 101,
@@ -20669,9 +20828,18 @@ describe('OrcaRuntimeService', () => {
     await expect(
       runtime.waitForTerminal(terminal.handle, { condition: 'tui-idle', timeoutMs: 50 })
     ).rejects.toThrow('timeout')
-    expect(serializeProviderBuffer).toHaveBeenCalledTimes(4)
-    await expect(runtime.readTerminal(terminal.handle)).resolves.toMatchObject({ tail: [] })
-    expect(serializeProviderBuffer).toHaveBeenCalledTimes(4)
+    expect(serializeProviderBuffer).toHaveBeenCalledTimes(6)
+    // Why args, not counts: the one-shot responses above ignore their options,
+    // so only this asserts every idle probe asked for the visible grid alone.
+    expect(serializeProviderBuffer.mock.calls.slice(1)).toEqual([
+      ['pty-legacy', { scrollbackRows: 0 }],
+      ['pty-legacy', { scrollbackRows: 0 }],
+      ['pty-legacy', { scrollbackRows: 0 }],
+      ['pty-legacy', { scrollbackRows: 0 }],
+      ['pty-legacy', { scrollbackRows: 0 }]
+    ])
+    await expect(runtime.readTerminal(terminal.handle)).resolves.toBeDefined()
+    expect(serializeProviderBuffer).toHaveBeenCalledTimes(6)
     expect(
       runtime.verifyOrchestrationCompatibilityCaller({
         terminalHandle: 'term_legacy',
@@ -35551,7 +35719,7 @@ describe('OrcaRuntimeService', () => {
 
       await vi.advanceTimersByTimeAsync(20_000)
       expect(pendingReads).not.toHaveBeenCalled()
-      expect(vi.getTimerCount()).toBe(0)
+      expect(pendingMailPointerRepoints(runtime)).toBe(0)
 
       runtime.onPtyData('pty-1', '\x1b]0;Codex done\x07', 101)
       expect(pendingReads).toHaveBeenCalledTimes(1)
@@ -35638,7 +35806,7 @@ describe('OrcaRuntimeService', () => {
             typeof payload === 'string' && payload.includes('orca orchestration check')
         )
       ).toHaveLength(1)
-      expect(vi.getTimerCount()).toBe(0)
+      expect(pendingMailPointerRepoints(runtime)).toBe(0)
       db.close()
     } finally {
       vi.useRealTimers()
@@ -37548,6 +37716,261 @@ describe('OrcaRuntimeService', () => {
       })
     ])
     expect(summary).toMatchObject({ hasHostSidebarActivity: true, status: 'working' })
+  })
+
+  it('projects monitoring for folder workspaces without assuming a git worktree', async () => {
+    const now = Date.now()
+    const folderWorkspace = makeFolderWorkspace({ name: 'GG' })
+    const projectGroup = makeFolderProjectGroup({ name: 'Store' })
+    const runtime = new OrcaRuntimeService(
+      createFolderWorkspaceRuntimeStore(folderWorkspace, projectGroup) as never,
+      undefined,
+      {
+        getAgentStatusSnapshot: () => [
+          {
+            paneKey: 'folder-pane',
+            worktreeId: TEST_FOLDER_WORKSPACE_KEY,
+            state: 'working',
+            workingMode: 'monitoring',
+            prompt: 'watch tests',
+            agentType: 'claude',
+            connectionId: null,
+            receivedAt: now,
+            stateStartedAt: now - 100
+          }
+        ]
+      }
+    )
+
+    const { worktrees } = await runtime.getWorktreePs()
+    const summary = worktrees.find((worktree) => worktree.worktreeId === TEST_FOLDER_WORKSPACE_KEY)
+
+    expect(summary).toMatchObject({
+      workspaceKind: 'folder-workspace',
+      status: 'working',
+      workingMode: 'monitoring'
+    })
+  })
+  it('projects monitoring over a title-derived working status', async () => {
+    const now = Date.now()
+    const runtime = new OrcaRuntimeService(store, undefined, {
+      getAgentStatusSnapshot: () => [
+        {
+          paneKey: 'tab-1:1',
+          worktreeId: TEST_WORKTREE_ID,
+          tabId: 'tab-1',
+          state: 'working',
+          workingMode: 'monitoring',
+          prompt: 'watch tests',
+          agentType: 'claude',
+          connectionId: null,
+          receivedAt: now,
+          stateStartedAt: now - 100
+        }
+      ]
+    })
+    syncSinglePty(runtime, 'pty-1', { paneTitle: 'claude working' })
+
+    const { worktrees } = await runtime.getWorktreePs()
+    const summary = worktrees.find((worktree) => worktree.worktreeId === TEST_WORKTREE_ID)
+
+    expect(summary).toMatchObject({ status: 'working', workingMode: 'monitoring' })
+  })
+  it('keeps hook monitoring mode when a newer mode-less OSC row reports the same work', async () => {
+    const now = Date.now()
+    const runtime = new OrcaRuntimeService(store, undefined, {
+      getAgentStatusSnapshot: () => [
+        {
+          paneKey: 'tab-1:1',
+          worktreeId: TEST_WORKTREE_ID,
+          tabId: 'tab-1',
+          state: 'working',
+          workingMode: 'monitoring',
+          prompt: 'watch tests',
+          agentType: 'claude',
+          connectionId: null,
+          receivedAt: now - 100,
+          stateStartedAt: now - 200
+        }
+      ]
+    })
+    syncSinglePty(runtime)
+    runtime.onPtyData(
+      'pty-1',
+      '\x1b]9999;{"state":"working","prompt":"watch tests","agentType":"claude"}\x07',
+      1
+    )
+
+    const { worktrees } = await runtime.getWorktreePs()
+    const summary = worktrees.find((worktree) => worktree.worktreeId === TEST_WORKTREE_ID)
+
+    expect(summary).toMatchObject({ status: 'working', workingMode: 'monitoring' })
+    expect(summary?.agents).toEqual([
+      expect.objectContaining({
+        state: 'working',
+        workingMode: 'monitoring',
+        prompt: 'watch tests'
+      })
+    ])
+  })
+  it('does not carry hook monitoring mode into a newer OSC turn', async () => {
+    const now = Date.now()
+    const runtime = new OrcaRuntimeService(store, undefined, {
+      getAgentStatusSnapshot: () => [
+        {
+          paneKey: 'tab-1:1',
+          worktreeId: TEST_WORKTREE_ID,
+          tabId: 'tab-1',
+          state: 'working',
+          workingMode: 'monitoring',
+          prompt: 'watch tests',
+          agentType: 'claude',
+          connectionId: null,
+          receivedAt: now - 100,
+          stateStartedAt: now - 200
+        }
+      ]
+    })
+    syncSinglePty(runtime)
+    runtime.onPtyData(
+      'pty-1',
+      '\x1b]9999;{"state":"working","prompt":"fix tests","agentType":"claude"}\x07',
+      1
+    )
+
+    const { worktrees } = await runtime.getWorktreePs()
+    const summary = worktrees.find((worktree) => worktree.worktreeId === TEST_WORKTREE_ID)
+
+    expect(summary).toMatchObject({ status: 'working' })
+    expect(summary).not.toHaveProperty('workingMode')
+    expect(summary?.agents).toEqual([
+      expect.objectContaining({ state: 'working', prompt: 'fix tests' })
+    ])
+  })
+  it('keeps title-only foreground work ahead of monitoring in another pane', async () => {
+    const now = Date.now()
+    const monitoringLeafId = '33333333-3333-4333-8333-333333333333'
+    const foregroundLeafId = '44444444-4444-4444-8444-444444444444'
+    const runtime = new OrcaRuntimeService(store, undefined, {
+      getAgentStatusSnapshot: () => [
+        {
+          paneKey: `monitoring-tab:${monitoringLeafId}`,
+          worktreeId: TEST_WORKTREE_ID,
+          tabId: 'monitoring-tab',
+          state: 'working',
+          workingMode: 'monitoring',
+          prompt: 'watch tests',
+          agentType: 'claude',
+          connectionId: null,
+          receivedAt: now,
+          stateStartedAt: now - 100
+        }
+      ]
+    })
+    runtime.attachWindow(1)
+    runtime.syncWindowGraph(1, {
+      tabs: [
+        {
+          tabId: 'monitoring-tab',
+          worktreeId: TEST_WORKTREE_ID,
+          title: 'Claude',
+          activeLeafId: monitoringLeafId,
+          layout: null
+        },
+        {
+          tabId: 'foreground-tab',
+          worktreeId: TEST_WORKTREE_ID,
+          title: 'Claude',
+          activeLeafId: foregroundLeafId,
+          layout: null
+        }
+      ],
+      leaves: [
+        {
+          tabId: 'monitoring-tab',
+          worktreeId: TEST_WORKTREE_ID,
+          leafId: monitoringLeafId,
+          paneRuntimeId: 1,
+          ptyId: 'monitoring-pty',
+          paneTitle: 'claude'
+        },
+        {
+          tabId: 'foreground-tab',
+          worktreeId: TEST_WORKTREE_ID,
+          leafId: foregroundLeafId,
+          paneRuntimeId: 2,
+          ptyId: 'foreground-pty',
+          paneTitle: 'claude working'
+        }
+      ]
+    })
+
+    const { worktrees } = await runtime.getWorktreePs()
+    const summary = worktrees.find((worktree) => worktree.worktreeId === TEST_WORKTREE_ID)
+
+    expect(summary).toMatchObject({ status: 'working' })
+    expect(summary).not.toHaveProperty('workingMode')
+    expect(summary?.agents).toEqual([
+      expect.objectContaining({ paneKey: `monitoring-tab:${monitoringLeafId}` })
+    ])
+  })
+  it('keeps title-only foreground work ahead of monitoring in another split pane', async () => {
+    const now = Date.now()
+    const tabId = 'split-tab'
+    const monitoringLeafId = '33333333-3333-4333-8333-333333333333'
+    const foregroundLeafId = '44444444-4444-4444-8444-444444444444'
+    const runtime = new OrcaRuntimeService(store, undefined, {
+      getAgentStatusSnapshot: () => [
+        {
+          paneKey: `${tabId}:${monitoringLeafId}`,
+          worktreeId: TEST_WORKTREE_ID,
+          tabId,
+          state: 'working',
+          workingMode: 'monitoring',
+          prompt: 'watch tests',
+          agentType: 'claude',
+          connectionId: null,
+          receivedAt: now,
+          stateStartedAt: now - 100
+        }
+      ]
+    })
+    runtime.attachWindow(1)
+    runtime.syncWindowGraph(1, {
+      tabs: [
+        {
+          tabId,
+          worktreeId: TEST_WORKTREE_ID,
+          title: 'Claude',
+          activeLeafId: monitoringLeafId,
+          layout: null
+        }
+      ],
+      leaves: [
+        {
+          tabId,
+          worktreeId: TEST_WORKTREE_ID,
+          leafId: monitoringLeafId,
+          paneRuntimeId: 1,
+          ptyId: 'monitoring-pty',
+          paneTitle: 'claude'
+        },
+        {
+          tabId,
+          worktreeId: TEST_WORKTREE_ID,
+          leafId: foregroundLeafId,
+          paneRuntimeId: 2,
+          ptyId: 'foreground-pty',
+          paneTitle: 'claude working'
+        }
+      ]
+    })
+
+    const { worktrees } = await runtime.getWorktreePs()
+    const summary = worktrees.find((worktree) => worktree.worktreeId === TEST_WORKTREE_ID)
+
+    expect(summary).toMatchObject({ status: 'working' })
+    expect(summary).not.toHaveProperty('workingMode')
   })
 
   it('suppresses restored-unconfirmed hook rows from worktree.ps', async () => {

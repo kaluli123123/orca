@@ -38,7 +38,6 @@ inline src/main/index.ts
 inline src/main/ipc/filesystem-watcher.ts
 inline src/main/ipc/filesystem.ts
 inline src/main/ipc/github.ts
-inline src/main/ipc/pty.ts
 inline src/main/ipc/repos.ts
 inline src/main/ipc/ssh.ts
 inline src/main/ipc/worktree-remote.ts
@@ -128,7 +127,6 @@ inline src/renderer/src/components/status-bar/WorkspaceSpaceManagerPanel.tsx
 inline src/renderer/src/components/terminal-pane/TerminalPane.tsx
 inline src/renderer/src/components/terminal-pane/agent-completion-coordinator.ts
 inline src/renderer/src/components/terminal-pane/keyboard-handlers.ts
-inline src/renderer/src/components/terminal-pane/pty-connection.ts
 inline src/renderer/src/components/terminal-pane/pty-transport.ts
 inline src/renderer/src/components/terminal-pane/remote-runtime-pty-transport.ts
 inline src/renderer/src/components/terminal-pane/use-terminal-pane-lifecycle.ts
