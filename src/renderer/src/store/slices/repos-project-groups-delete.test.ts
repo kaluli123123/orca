@@ -168,7 +168,7 @@ describe('project group deletion store routing', () => {
       _meta: { runtimeId: 'runtime-remote' }
     })
     const remotelyOwnedGroup = { ...projectGroup, executionHostId: 'runtime:env-1' }
-    // Why: no executionHostId/connectionId of its own — catalogOwnerHostId alone
+    // Why: a group without host fields resolves locally, so a stale host must be rejected.
     // would default this to local and leave it dangling after the delete.
     const unstampedWorkspace: FolderWorkspace = {
       id: 'unstamped-workspace',
