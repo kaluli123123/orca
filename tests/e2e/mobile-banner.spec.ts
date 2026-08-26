@@ -1,11 +1,11 @@
 import type { ElectronApplication, Page, TestInfo } from '@stablyai/playwright-test'
-import { RuntimeClient } from '../../src/cli/runtime/client'
-import { test, expect } from './helpers/orca-app'
+import { parsePairingCode } from '../../src/shared/pairing'
 import {
-  createRuntimeDesktopPairingOffer,
-  launchPairedElectronClient,
-  type PairedElectronClient
-} from './helpers/paired-electron-client'
+  subscribeRemoteRuntimeRequest,
+  type RemoteRuntimeSubscription
+} from '../../src/shared/remote-runtime-client'
+import type { BrowserScreencastResult } from '../../src/shared/runtime-browser-contracts'
+import { test, expect } from './helpers/orca-app'
 import {
   ensureTerminalVisible,
   getActiveWorktreeId,
@@ -32,6 +32,14 @@ import {
 // renderer-side IPC listener → state mirror → banner JSX chain.
 
 test.describe.configure({ mode: 'serial' })
+
+test.beforeEach(async ({ orcaPage }) => {
+  await waitForSessionReady(orcaPage)
+  // Why: these locators assert English copy, while fresh profiles follow the host OS locale.
+  await orcaPage.evaluate(async () => {
+    await window.__store?.getState().updateSettings({ uiLanguage: 'en' })
+  })
+})
 
 test('mobile subscribe mounts overlay; collapse → chip; Take back dismisses', async ({
   orcaPage,
@@ -95,96 +103,63 @@ test('mobile subscribe mounts overlay; collapse → chip; Take back dismisses', 
   await expect(overlay).toBeHidden({ timeout: 15_000 })
 })
 
-test('browser Take back releases its retained driver state', async ({
-  electronApp,
-  orcaPage,
-  testRepoPath
-}, testInfo: TestInfo) => {
+test('browser Take back releases its retained driver state', async ({ orcaPage }) => {
   test.setTimeout(180_000)
-  let client: PairedElectronClient | null = null
+  let mobileSubscription: RemoteRuntimeSubscription | null = null
   try {
     await waitForSessionReady(orcaPage)
-    await waitForActiveWorktree(orcaPage)
-    const offer = await createRuntimeDesktopPairingOffer(orcaPage)
-    const userDataDir = await electronApp.evaluate(({ app }) => app.getPath('userData'))
-    const hostClient = new RuntimeClient(userDataDir)
-    client = await launchPairedElectronClient(offer, testInfo, 'Browser driver regression')
-    const findWorktreeId = (): Promise<string | null> =>
-      client!.page.evaluate(
-        (path) =>
-          window.__store
-            ?.getState()
-            .allWorktrees()
-            .find((worktree) => worktree.path === path)?.id ?? null,
-        testRepoPath
-      )
-    await expect
-      .poll(findWorktreeId, {
-        timeout: 60_000,
-        message: 'paired client never received the host worktree'
+    const worktreeId = await waitForActiveWorktree(orcaPage)
+    const browserPageId = await orcaPage.evaluate((targetWorktreeId) => {
+      const tab = window.__store!.getState().createBrowserTab(targetWorktreeId, 'about:blank', {
+        title: 'Mobile driver test',
+        activate: true
       })
-      .not.toBeNull()
-    const worktreeId = await findWorktreeId()
-    if (!worktreeId) {
-      throw new Error('Paired worktree disappeared after discovery')
+      return tab.activePageId
+    }, worktreeId)
+    if (!browserPageId) {
+      throw new Error('Browser page was not created')
     }
-
-    const created = await hostClient.call<{ browserPageId: string }>('browser.tabCreate', {
-      activate: true,
-      url: 'about:blank',
-      worktree: `id:${worktreeId}`
-    })
-    const browserPageId = created.result.browserPageId
-    await client.page.evaluate(
-      ({ environmentId, worktreeId }) => {
-        window.__store?.getState().setActiveWorktree(worktreeId, `runtime:${environmentId}`)
-      },
-      { environmentId: client.environmentId, worktreeId }
-    )
-    let clientPageId: string | null = null
-    await expect
-      .poll(
-        async () => {
-          clientPageId = await client!.page.evaluate(
-            ({ browserPageId, worktreeId }) => {
-              const state = window.__store?.getState()
-              for (const workspace of state?.browserTabsByWorktree[worktreeId] ?? []) {
-                for (const page of state?.browserPagesByWorkspace[workspace.id] ?? []) {
-                  if (
-                    state?.remoteBrowserPageHandlesByPageId[page.id]?.remotePageId === browserPageId
-                  ) {
-                    return page.id
-                  }
-                }
-              }
-              return null
-            },
-            { browserPageId, worktreeId }
-          )
-          return clientPageId
-        },
-        {
-          timeout: 60_000,
-          message: 'paired client never mirrored the host browser page'
-        }
-      )
-      .not.toBeNull()
-    if (!clientPageId) {
-      throw new Error('Mirrored browser page disappeared after discovery')
-    }
-    await client.page.evaluate(
-      ({ pageId, worktreeId }) =>
-        window.__store?.getState().focusBrowserTabInWorktree(worktreeId, pageId, {
-          surfacePane: true
-        }),
-      { pageId: clientPageId, worktreeId }
-    )
-    await expect(client.page.getByTestId('remote-browser-frame').first()).toBeVisible({
-      timeout: 60_000
-    })
 
     const addressBar = orcaPage.locator('[data-orca-browser-address-bar="true"]:visible')
     await expect(addressBar).toBeVisible({ timeout: 15_000 })
+    const offer = await orcaPage.evaluate(() =>
+      window.api.mobile.getPairingQR({
+        address: '127.0.0.1',
+        connectionMode: 'local-only',
+        rotate: true
+      })
+    )
+    if (!offer.available) {
+      throw new Error(`Mobile pairing unavailable: ${offer.reason ?? 'unknown'}`)
+    }
+    const pairing = parsePairingCode(offer.pairingUrl)
+    if (!pairing) {
+      throw new Error('Mobile pairing URL was invalid')
+    }
+    let resolveReady!: () => void
+    let rejectReady!: (error: unknown) => void
+    const ready = new Promise<void>((resolve, reject) => {
+      resolveReady = resolve
+      rejectReady = reject
+    })
+    mobileSubscription = await subscribeRemoteRuntimeRequest<BrowserScreencastResult>(
+      pairing,
+      'browser.screencast',
+      { page: browserPageId },
+      60_000,
+      {
+        onResponse: (response) => {
+          if (!response.ok) {
+            rejectReady(new Error(`Browser screencast failed: ${JSON.stringify(response)}`))
+          } else if (response.result.type === 'ready') {
+            resolveReady()
+          }
+        },
+        onBinary: () => {},
+        onError: rejectReady
+      }
+    )
+    await ready
     await expect
       .poll(() =>
         orcaPage.evaluate(async (targetPageId) => {
@@ -209,7 +184,7 @@ test('browser Take back releases its retained driver state', async ({
       .toBe(false)
     await expect(addressBar).toBeEnabled()
   } finally {
-    await client?.dispose()
+    mobileSubscription?.close()
   }
 })
 
