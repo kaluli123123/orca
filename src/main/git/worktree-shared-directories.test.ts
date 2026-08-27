@@ -2,7 +2,7 @@ import { execFileSync } from 'node:child_process'
 import { lstatSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   clearConfiguredWorktreeSharedDirectoriesCacheForTests,
   getConfiguredWorktreeSharedDirectories,
@@ -16,18 +16,50 @@ import {
 import { assertWorktreeCleanForRemoval } from './worktree'
 import { getStatus } from './status'
 
-const CONFIG_ISOLATION_DIR = mkdtempSync(join(tmpdir(), 'orca-shared-dirs-noconfig-'))
-const ABSENT_GIT_CONFIG = join(CONFIG_ISOLATION_DIR, 'absent.gitconfig')
+// Why an empty file and not `os.devNull`: that constant is `\\.\nul` on win32, which
+// Git normalizes to `//./nul` and rejects — `fatal: unable to access '//./nul': Invalid
+// argument`. Every git call in this file then threw. POSIX resolves it to /dev/null,
+// which Git accepts, so CI never saw it. An empty file works on every platform and
+// matches how skill-git-tree-identity and skill-windows-workspace already isolate.
+//
+// Why process.env and not just this helper's env: resolveWorktreeSharedDirectories
+// runs its own `git check-ignore` through the production runner, which inherits
+// process.env. Overriding only the setup helper left the code under test reading the
+// host's real config, so a developer with core.excludesFile set saw a fixture that is
+// not gitignored come back as ignored.
+let gitConfigRoot: string
+let previousGitConfigGlobal: string | undefined
+let previousGitConfigNosystem: string | undefined
 
-afterAll(() => {
-  rmSync(CONFIG_ISOLATION_DIR, { recursive: true, force: true })
+beforeAll(() => {
+  gitConfigRoot = mkdtempSync(join(tmpdir(), 'orca-shared-dirs-gitconfig-'))
+  const emptyGlobalGitConfig = join(gitConfigRoot, 'global.gitconfig')
+  writeFileSync(emptyGlobalGitConfig, '')
+  previousGitConfigGlobal = process.env.GIT_CONFIG_GLOBAL
+  previousGitConfigNosystem = process.env.GIT_CONFIG_NOSYSTEM
+  process.env.GIT_CONFIG_GLOBAL = emptyGlobalGitConfig
+  process.env.GIT_CONFIG_NOSYSTEM = '1'
 })
 
+afterAll(() => {
+  restoreGitEnv('GIT_CONFIG_GLOBAL', previousGitConfigGlobal)
+  restoreGitEnv('GIT_CONFIG_NOSYSTEM', previousGitConfigNosystem)
+  rmSync(gitConfigRoot, { recursive: true, force: true })
+})
+
+function restoreGitEnv(
+  name: 'GIT_CONFIG_GLOBAL' | 'GIT_CONFIG_NOSYSTEM',
+  value: string | undefined
+): void {
+  if (value === undefined) {
+    delete process.env[name]
+    return
+  }
+  process.env[name] = value
+}
+
 const git = (args: string[], cwd: string): void => {
-  execFileSync('git', args, {
-    cwd,
-    stdio: 'ignore'
-  })
+  execFileSync('git', args, { cwd, stdio: 'ignore' })
 }
 
 describe('resolveWorktreeSharedDirectories', () => {
@@ -39,8 +71,6 @@ describe('resolveWorktreeSharedDirectories', () => {
   }
 
   beforeEach(() => {
-    vi.stubEnv('GIT_CONFIG_GLOBAL', ABSENT_GIT_CONFIG)
-    vi.stubEnv('GIT_CONFIG_SYSTEM', ABSENT_GIT_CONFIG)
     clearConfiguredWorktreeSharedDirectoriesCacheForTests()
     repo = mkdtempSync(join(tmpdir(), 'orca-shared-dirs-'))
     git(['init', '-q'], repo)
@@ -56,7 +86,6 @@ describe('resolveWorktreeSharedDirectories', () => {
   afterEach(() => {
     warn.mockRestore()
     rmSync(repo, { recursive: true, force: true })
-    vi.unstubAllEnvs()
   })
 
   it('returns gitignored directories listed under worktree.sharedDirectories', async () => {
