@@ -134,10 +134,9 @@ export function createProjectGroupMutationActions(
     deleteProjectGroupWithContainedProjects: async (groupId, options) => {
       const requestedHostId = options.executionHostId ?? options.hostId
       if (
-        options.executionHostId &&
+        requestedHostId &&
         !get().projectGroups.some(
-          (group) =>
-            group.id === groupId && getCatalogOwnerHostId(group) === options.executionHostId
+          (group) => group.id === groupId && getCatalogOwnerHostId(group) === requestedHostId
         )
       ) {
         return {

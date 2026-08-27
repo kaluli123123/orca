@@ -599,6 +599,38 @@ describe('project group deletion store routing', () => {
     expect(store.getState().projectGroups).toEqual([remoteGroup])
   })
 
+  it('rejects a stale hostId before deleting a focused same-id group with contained projects', async () => {
+    projectGroupsDelete.mockResolvedValue(true)
+    const localGroup = { ...projectGroup, executionHostId: 'local' }
+    const localRepo = { ...remoteRepo, id: 'local-repo', projectGroupId: projectGroup.id }
+    const store = createTestStore()
+    store.setState({
+      settings: { activeRuntimeEnvironmentId: null } as never,
+      projectGroups: [localGroup],
+      repos: [localRepo]
+    })
+
+    await expect(
+      store.getState().deleteProjectGroupWithContainedProjects(projectGroup.id, {
+        removeContainedProjects: true,
+        hostId: 'runtime:missing'
+      })
+    ).resolves.toEqual({
+      status: 'missing-group',
+      groupId: projectGroup.id,
+      requestedProjectIds: [],
+      removedProjectIds: [],
+      failedProjectRemovals: []
+    })
+
+    expect(projectGroupsDelete).not.toHaveBeenCalled()
+    expect(runtimeEnvironmentCall).not.toHaveBeenCalled()
+    expect(reposRemove).not.toHaveBeenCalled()
+    expect(reposRemoveForHost).not.toHaveBeenCalled()
+    expect(store.getState().projectGroups).toEqual([localGroup])
+    expect(store.getState().repos).toEqual([localRepo])
+  })
+
   it('processes local/direct-SSH same-ID contained rows sequentially', async () => {
     const localRepo = {
       ...remoteRepo,
