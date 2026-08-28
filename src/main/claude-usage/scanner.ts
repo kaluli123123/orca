@@ -1,4 +1,6 @@
 import { stat } from 'node:fs/promises'
+import { isWslUncPath } from '../../shared/wsl-paths'
+import { wslGatedStat } from '../native-chat/wsl-transcript-fs-access'
 import type {
   ClaudeUsageDailyAggregate,
   ClaudeUsageParsedTurn,
@@ -31,7 +33,9 @@ async function yieldToEventLoop(): Promise<void> {
 async function getProcessedFileStat(
   filePath: string
 ): Promise<Omit<ClaudeUsageProcessedFile, 'lineCount'>> {
-  const fileStat = await stat(filePath)
+  const fileStat = isWslUncPath(filePath)
+    ? await wslGatedStat(filePath, 'scan')
+    : await stat(filePath)
   return {
     path: filePath,
     mtimeMs: fileStat.mtimeMs,
