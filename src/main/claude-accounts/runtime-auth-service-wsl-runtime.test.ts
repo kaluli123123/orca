@@ -87,6 +87,38 @@ describe('ClaudeRuntimeAuthService', () => {
     })
   })
 
+  it('uses the selected WSL login environment config directory for usage scans', async () => {
+    setPlatform('win32')
+    vi.doMock('../wsl', () => ({
+      getDefaultWslDistro: () => 'Ubuntu',
+      getWslHome: () => String.raw`\\wsl.localhost\Ubuntu\home\alice`,
+      toWindowsWslPath: (linuxPath: string, distro: string) =>
+        `\\\\wsl.localhost\\${distro}${linuxPath.replace(/\//g, '\\')}`
+    }))
+    vi.doMock('../wsl/wsl-guest-environment', () => ({
+      getWslGuestEnvironment: vi.fn().mockResolvedValue({
+        path: '/usr/bin',
+        home: '/home/alice',
+        envBinary: '/usr/bin/env',
+        claudeConfigDir: '/home/alice/.claude-alt'
+      })
+    }))
+    const settings = createSettings({
+      localAccountRuntime: 'wsl',
+      localAccountWslDistro: 'Ubuntu',
+      activeClaudeManagedAccountId: null,
+      activeClaudeManagedAccountIdsByRuntime: { host: null, wsl: {} }
+    })
+    const store = createStore(settings)
+
+    const { ClaudeRuntimeAuthService } = await import('./runtime-auth-service')
+    const service = new ClaudeRuntimeAuthService(store as never)
+
+    await expect(service.getUsageScanTarget()).resolves.toEqual({
+      configDir: String.raw`\\wsl.localhost\Ubuntu\home\alice\.claude-alt`
+    })
+  })
+
   it('uses the global WSL runtime for untargeted Claude preparation under auto', async () => {
     setPlatform('win32')
     vi.doMock('../wsl', () => ({

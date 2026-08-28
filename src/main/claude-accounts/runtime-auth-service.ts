@@ -3,6 +3,7 @@ import { chmodSync, existsSync, mkdirSync, readFileSync, rmSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { app } from 'electron'
 import type { ClaudeManagedAccount } from '../../shared/managed-account-types'
+import type { ClaudeUsageScanTarget } from '../claude-usage/scanner'
 import type { Store } from '../persistence'
 import { writeFileAtomically } from '../codex-accounts/fs-utils'
 import type { ClaudeEnvPatch } from './environment'
@@ -17,6 +18,8 @@ import { getDefaultWslDistro, getWslHome, toWindowsWslPath } from '../wsl'
 const OWNERSHIP_PROBE_TIMEOUT = 'orca-wsl-ownership-probe-timeout'
 
 import { runWslProcess } from '../wsl/wsl-runner'
+import { getWslGuestEnvironment } from '../wsl/wsl-guest-environment'
+import { getInitialClaudeRateLimitTarget } from '../rate-limits/claude-rate-limit-target'
 import { hasLiveClaudePtys } from './live-pty-gate'
 import { isOauthTokenExpiring, refreshClaudeOauthCredentials } from './oauth-refresh'
 import { ClaudeRuntimePathResolver } from './runtime-paths'
@@ -154,6 +157,35 @@ export class ClaudeRuntimeAuthService {
 
   getRuntimeConfigDir(target?: ClaudeAccountSelectionTarget): string {
     return this.getPreparation(target).configDir
+  }
+
+  async getUsageScanTarget(): Promise<ClaudeUsageScanTarget> {
+    const settings = this.store.getSettings()
+    const target = this.resolveWslDefaultTarget(getInitialClaudeRateLimitTarget(settings))
+    const normalizedTarget = normalizeClaudeAccountSelectionTarget(target)
+    if (normalizedTarget.runtime !== 'wsl') {
+      return { configDir: this.pathResolver.getRuntimePaths().configDir }
+    }
+
+    const activeAccountId = getSelectedClaudeAccountIdForTarget(settings, normalizedTarget)
+    const activeAccount = this.getActiveAccount(settings.claudeManagedAccounts, activeAccountId)
+    const distro = normalizedTarget.wslDistro ?? getDefaultWslDistro()
+    if (activeAccount?.managedAuthRuntime === 'wsl' && activeAccount.wslLinuxAuthPath && distro) {
+      return { configDir: toWindowsWslPath(activeAccount.wslLinuxAuthPath, distro) }
+    }
+
+    const environment = distro ? await getWslGuestEnvironment(distro) : null
+    const wslHome = distro ? getWslHome(distro) : null
+    const wslHomeInfo = wslHome ? parseWslUncPath(wslHome) : null
+    const linuxConfigDir =
+      environment?.claudeConfigDir ??
+      (wslHomeInfo ? `${wslHomeInfo.linuxPath.replace(/\/$/, '')}/.claude` : null)
+    return {
+      configDir:
+        distro && linuxConfigDir
+          ? toWindowsWslPath(linuxConfigDir, distro)
+          : this.pathResolver.getRuntimePaths().configDir
+    }
   }
 
   private initializeLastSyncedState(): void {

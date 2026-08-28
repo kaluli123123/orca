@@ -2577,7 +2577,6 @@ void app.whenReady().then(async () => {
   agentHookServer.subscribePaneStatusClear((clear) => {
     agentSessionRecorder.onCleared(clear)
   })
-  claudeUsage = new ClaudeUsageStore(store)
   codexUsage = new CodexUsageStore(store)
   openCodeUsage = new OpenCodeUsageStore(store)
   rateLimits = new RateLimitService()
@@ -2615,6 +2614,7 @@ void app.whenReady().then(async () => {
   codexSessionMigration.scheduleInitialRun()
   claudeRuntimeAuth = new ClaudeRuntimeAuthService(store)
   claudeAccounts = new ClaudeAccountService(store, rateLimits, claudeRuntimeAuth)
+  claudeUsage = new ClaudeUsageStore(store, () => claudeRuntimeAuth!.getUsageScanTarget())
   rateLimits.setCodexHomePathResolver((target) =>
     codexRuntimeHome!.prepareForRateLimitFetch(target)
   )
@@ -2632,6 +2632,19 @@ void app.whenReady().then(async () => {
     void syncAccountRuntimeTargets(updates, settings).catch((error) =>
       console.warn('[rate-limits] Failed to apply account runtime target:', error)
     )
+    if (
+      'localAccountRuntime' in updates ||
+      'localAccountWslDistro' in updates ||
+      'localWindowsRuntimeDefault' in updates ||
+      'activeClaudeManagedAccountId' in updates ||
+      'activeClaudeManagedAccountIdsByRuntime' in updates
+    ) {
+      void claudeUsage
+        ?.refresh(true)
+        .catch((error) =>
+          console.warn('[claude-usage] Failed to refresh after runtime selection change:', error)
+        )
+    }
   })
   rateLimits.setClaudeAuthPreparationResolver((target) =>
     claudeRuntimeAuth!.prepareForRateLimitFetch(target)

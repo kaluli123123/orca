@@ -60,6 +60,7 @@ vi.mock('../native-chat/wsl-transcript-fs-access', async () => ({
 }))
 
 const WSL_FILE = String.raw`\\wsl.localhost\Ubuntu\home\ada\.claude\projects\repo\session.jsonl`
+const WSL_CONFIG = String.raw`\\wsl.localhost\Ubuntu\home\ada\.claude-alt`
 
 describe('scanClaudeUsageFiles WSL paths', () => {
   beforeEach(() => {
@@ -88,5 +89,13 @@ describe('scanClaudeUsageFiles WSL paths', () => {
 
     expect(wslGatedStatMock).toHaveBeenCalledWith(WSL_FILE, 'scan')
     expect(statMock).not.toHaveBeenCalled()
+  })
+
+  it('passes the selected config directory to transcript discovery', async () => {
+    const { scanClaudeUsageFiles } = await import('./scanner')
+
+    await scanClaudeUsageFiles([], [], { configDir: WSL_CONFIG })
+
+    expect(listClaudeTranscriptFilesMock).toHaveBeenCalledWith({ configDir: WSL_CONFIG })
   })
 })

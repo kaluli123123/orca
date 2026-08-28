@@ -24,6 +24,10 @@ import {
 
 const FILE_SCAN_BATCH_SIZE = 4
 
+export type ClaudeUsageScanTarget = {
+  configDir: string
+}
+
 // Why setImmediate: setTimeout(0) is clamped to ~1ms, and this yields once per
 // 4-file batch, so a 7.5k-transcript scan spent ~2s parked on timers.
 async function yieldToEventLoop(): Promise<void> {
@@ -45,13 +49,16 @@ async function getProcessedFileStat(
 
 export async function scanClaudeUsageFiles(
   worktrees: ClaudeUsageWorktreeRef[],
-  previousProcessedFiles: ClaudeUsagePersistedFile[] = []
+  previousProcessedFiles: ClaudeUsagePersistedFile[] = [],
+  target?: ClaudeUsageScanTarget
 ): Promise<{
   processedFiles: ClaudeUsagePersistedFile[]
   sessions: ClaudeUsageSession[]
   dailyAggregates: ClaudeUsageDailyAggregate[]
 }> {
-  const files = await listClaudeTranscriptFiles()
+  const files = await listClaudeTranscriptFiles(
+    target ? { configDir: target.configDir } : undefined
+  )
   const previousByPath = new Map(previousProcessedFiles.map((file) => [file.path, file]))
   const worktreeLookup = await buildWorktreeLookup(worktrees)
 

@@ -39,6 +39,10 @@ const WSL_PROJECTS = String.raw`\\wsl.localhost\Ubuntu\home\ada\.claude\projects
 const WSL_TRANSCRIPTS = String.raw`\\wsl.localhost\Ubuntu\home\ada\.claude\transcripts`
 const WSL_PROJECT = String.raw`\\wsl.localhost\Ubuntu\home\ada\.claude\projects\repo`
 const WSL_FILE = String.raw`\\wsl.localhost\Ubuntu\home\ada\.claude\projects\repo\session.jsonl`
+const WSL_ALT_CONFIG = String.raw`\\wsl.localhost\Ubuntu\home\ada\.claude-alt`
+const WSL_ALT_PROJECTS = String.raw`\\wsl.localhost\Ubuntu\home\ada\.claude-alt\projects`
+const WSL_ALT_PROJECT = String.raw`\\wsl.localhost\Ubuntu\home\ada\.claude-alt\projects\repo`
+const WSL_ALT_FILE = String.raw`\\wsl.localhost\Ubuntu\home\ada\.claude-alt\projects\repo\session.jsonl`
 
 function dirent(name: string, kind: 'directory' | 'file'): Dirent {
   return {
@@ -80,6 +84,23 @@ describe('Claude usage transcript discovery on Windows', () => {
       })
     ).resolves.toEqual([WSL_FILE])
     expect(wslReaddirMock).toHaveBeenCalledWith(WSL_PROJECTS, 'scan')
+  })
+
+  it('scans only the selected config directory instead of aggregating WSL homes', async () => {
+    wslReaddirMock.mockImplementation(async (path) => {
+      if (path === WSL_ALT_PROJECTS) {
+        return [dirent('repo', 'directory')]
+      }
+      if (path === WSL_ALT_PROJECT) {
+        return [dirent('session.jsonl', 'file')]
+      }
+      throw new Error(`unexpected WSL path: ${path}`)
+    })
+
+    const { listClaudeTranscriptFiles } = await import('./transcript-file-discovery')
+    await expect(
+      listClaudeTranscriptFiles({ platform: 'win32', configDir: WSL_ALT_CONFIG })
+    ).resolves.toEqual([WSL_ALT_FILE])
   })
 })
 

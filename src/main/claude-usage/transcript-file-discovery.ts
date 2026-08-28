@@ -10,7 +10,12 @@ const CLAUDE_TRANSCRIPTS_DIR = join(homedir(), '.claude', 'transcripts')
 
 type ClaudeTranscriptDiscoveryOptions = {
   platform?: NodeJS.Platform
+  configDir?: string
   listWslHomeDirs?: () => Promise<string[]>
+}
+
+function joinConfigPath(configDir: string, child: string): string {
+  return isWslUncPath(configDir) ? win32.join(configDir, child) : join(configDir, child)
 }
 
 async function walkJsonlFiles(dirPath: string): Promise<string[]> {
@@ -57,8 +62,13 @@ async function defaultListWslHomeDirs(): Promise<string[]> {
 export async function listClaudeTranscriptFiles(
   options: ClaudeTranscriptDiscoveryOptions = {}
 ): Promise<string[]> {
-  const roots = [CLAUDE_PROJECTS_DIR, CLAUDE_TRANSCRIPTS_DIR]
-  if ((options.platform ?? process.platform) === 'win32') {
+  const roots = options.configDir
+    ? [
+        joinConfigPath(options.configDir, 'projects'),
+        joinConfigPath(options.configDir, 'transcripts')
+      ]
+    : [CLAUDE_PROJECTS_DIR, CLAUDE_TRANSCRIPTS_DIR]
+  if (!options.configDir && (options.platform ?? process.platform) === 'win32') {
     const wslHomeDirs = await (options.listWslHomeDirs ?? defaultListWslHomeDirs)().catch(() => [])
     for (const homeDir of wslHomeDirs) {
       roots.push(win32.join(homeDir, '.claude', 'projects'))
