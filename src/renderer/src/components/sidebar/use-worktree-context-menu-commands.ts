@@ -44,7 +44,11 @@ export function useWorktreeContextMenuCommands(args: {
     window.api.ui.writeClipboardText(args.worktree.path)
   }, [args])
   const handleToggleRead = useCallback(() => {
-    args.updateWorktreeMeta(args.worktree.id, { isUnread: !args.worktree.isUnread })
+    args.updateWorktreeMeta(
+      args.worktree.id,
+      { isUnread: !args.worktree.isUnread },
+      { executionHostId: args.worktree.hostId ?? 'local' }
+    )
   }, [args])
   const handleTogglePin = useCallback(() => {
     args.setWorktreesPinnedAndReveal([args.worktree.id], !args.worktree.isPinned)
@@ -107,8 +111,17 @@ export function useWorktreeContextMenuCommands(args: {
         args.onAssignWorkspaceStatus?.(plan.worktreeIds, status)
         return
       }
+      const localWriteIds = new Set(plan.localWriteIds)
       void Promise.all(
-        plan.localWriteIds.map((id) => args.updateWorktreeMeta(id, { workspaceStatus: status }))
+        args.activeContextWorktrees
+          .filter((worktree) => localWriteIds.has(worktree.id))
+          .map((worktree) =>
+            args.updateWorktreeMeta(
+              worktree.id,
+              { workspaceStatus: status },
+              { executionHostId: worktree.hostId ?? 'local' }
+            )
+          )
       )
     },
     [args]
@@ -117,6 +130,7 @@ export function useWorktreeContextMenuCommands(args: {
     args.openModal('edit-meta', {
       worktreeId: args.worktree.id,
       repoId: args.worktree.repoId,
+      executionHostId: args.worktree.hostId,
       currentDisplayName: args.worktree.displayName,
       currentIssue: args.worktree.linkedIssue,
       currentPR: args.worktree.linkedPR,
