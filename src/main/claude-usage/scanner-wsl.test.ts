@@ -62,6 +62,8 @@ vi.mock('../native-chat/wsl-transcript-fs-access', async () => ({
 const WSL_FILE = String.raw`\\wsl.localhost\Ubuntu\home\ada\.claude\projects\repo\session.jsonl`
 const WSL_CONFIG = String.raw`\\wsl.localhost\Ubuntu\home\ada\.claude-alt`
 
+const WSL_MISSING_FILE = WSL_FILE.replace('session.jsonl', 'missing.jsonl')
+
 describe('scanClaudeUsageFiles WSL paths', () => {
   beforeEach(() => {
     vi.resetModules()
@@ -89,6 +91,23 @@ describe('scanClaudeUsageFiles WSL paths', () => {
 
     expect(wslGatedStatMock).toHaveBeenCalledWith(WSL_FILE, 'scan')
     expect(statMock).not.toHaveBeenCalled()
+  })
+
+  it('continues scanning when one discovered WSL transcript cannot be statted', async () => {
+    listClaudeTranscriptFilesMock.mockResolvedValue([WSL_MISSING_FILE, WSL_FILE])
+    wslGatedStatMock.mockImplementation(async (filePath) => {
+      if (filePath === WSL_MISSING_FILE) {
+        throw new Error('WSL transcript disappeared')
+      }
+      return { mtimeMs: 123, size: 10 }
+    })
+    const { scanClaudeUsageFiles } = await import('./scanner')
+
+    await expect(scanClaudeUsageFiles([])).resolves.toMatchObject({
+      processedFiles: [{ path: WSL_FILE, mtimeMs: 123, size: 10 }]
+    })
+    expect(readClaudeUsageScanFileMock).toHaveBeenCalledWith(WSL_FILE)
+    expect(readClaudeUsageScanFileMock).not.toHaveBeenCalledWith(WSL_MISSING_FILE)
   })
 
   it('passes the selected config directory to transcript discovery', async () => {

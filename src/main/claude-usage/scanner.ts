@@ -36,14 +36,19 @@ async function yieldToEventLoop(): Promise<void> {
 
 async function getProcessedFileStat(
   filePath: string
-): Promise<Omit<ClaudeUsageProcessedFile, 'lineCount'>> {
-  const fileStat = isWslUncPath(filePath)
-    ? await wslGatedStat(filePath, 'scan')
-    : await stat(filePath)
-  return {
-    path: filePath,
-    mtimeMs: fileStat.mtimeMs,
-    size: fileStat.size
+): Promise<Omit<ClaudeUsageProcessedFile, 'lineCount'> | undefined> {
+  try {
+    const fileStat = isWslUncPath(filePath)
+      ? await wslGatedStat(filePath, 'scan')
+      : await stat(filePath)
+    return {
+      path: filePath,
+      mtimeMs: fileStat.mtimeMs,
+      size: fileStat.size
+    }
+  } catch (error) {
+    console.warn('[claude-usage] Failed to stat transcript, skipping:', filePath, error)
+    return undefined
   }
 }
 
@@ -81,6 +86,9 @@ export async function scanClaudeUsageFiles(
     const reusable = await Promise.all(
       batch.map(async (filePath) => {
         const fileInfo = await getProcessedFileStat(filePath)
+        if (!fileInfo) {
+          return undefined
+        }
         const previous = previousByPath.get(filePath)
         // Why: Claude histories can be gigabytes. Unchanged files should pay
         // only stat cost on refresh while preserving exactly the old projection.
@@ -99,6 +107,9 @@ export async function scanClaudeUsageFiles(
       })
     )
     for (const [batchIndex, previous] of reusable.entries()) {
+      if (previous === undefined) {
+        continue
+      }
       if (previous) {
         reusedByPath.set(batch[batchIndex], previous)
       } else {

@@ -180,11 +180,11 @@ export class ClaudeRuntimeAuthService {
     const linuxConfigDir =
       environment?.claudeConfigDir ??
       (wslHomeInfo ? `${wslHomeInfo.linuxPath.replace(/\/$/, '')}/.claude` : null)
+    if (!distro || !linuxConfigDir) {
+      throw new Error('Selected WSL Claude runtime is unavailable')
+    }
     return {
-      configDir:
-        distro && linuxConfigDir
-          ? toWindowsWslPath(linuxConfigDir, distro)
-          : this.pathResolver.getRuntimePaths().configDir
+      configDir: toWindowsWslPath(linuxConfigDir, distro)
     }
   }
 
