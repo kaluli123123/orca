@@ -2769,7 +2769,7 @@ void app.whenReady().then(async () => {
       'activeClaudeManagedAccountIdsByRuntime' in updates
     ) {
       void claudeUsage
-        ?.refresh(true)
+        ?.refresh(true, { rerunIfScanning: true })
         .catch((error) =>
           console.warn('[claude-usage] Failed to refresh after runtime selection change:', error)
         )
