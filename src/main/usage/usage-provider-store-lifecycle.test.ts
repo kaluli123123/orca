@@ -233,6 +233,34 @@ describe('UsageProviderStoreLifecycle', () => {
     expect(store.getState().processedSources).toEqual([{ id: 'source' }])
   })
 
+  it('queues one follow-up scan when a target-changing refresh arrives during a scan', async () => {
+    const firstScan = createDeferred<TestScanResult>()
+    const secondScan = createDeferred<TestScanResult>()
+    scan.mockReturnValueOnce(firstScan.promise).mockReturnValueOnce(secondScan.promise)
+    const store = createStore()
+    store.replaceState(makeState({ scanState: { enabled: true } }))
+
+    const firstRefresh = store.refresh(true)
+    const targetRefresh = store.refresh(true, { rerunIfScanning: true })
+    await vi.waitFor(() => expect(scan).toHaveBeenCalledTimes(1))
+
+    firstScan.resolve({
+      processedSources: [{ id: 'old-target' }],
+      sessions: [{ id: 'old-target' }],
+      dailyAggregates: []
+    })
+    await vi.waitFor(() => expect(scan).toHaveBeenCalledTimes(2))
+
+    secondScan.resolve({
+      processedSources: [{ id: 'new-target' }],
+      sessions: [{ id: 'new-target' }],
+      dailyAggregates: []
+    })
+    await Promise.all([firstRefresh, targetRefresh])
+
+    expect(store.getState().processedSources).toEqual([{ id: 'new-target' }])
+  })
+
   it('vetoes a superseded generation before rename', async () => {
     const cacheFile = join(tempDirectory, 'usage-0.json')
     const store = createStore()
