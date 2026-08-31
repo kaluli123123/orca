@@ -99,6 +99,8 @@ class TestUsageStore extends UsageProviderStoreLifecycle<
   TestState,
   'hasAnyTestData'
 > {
+  private writeOverride: (() => Promise<void>) | null = null
+
   constructor(cacheFile: string, scan: TestScan) {
     super(
       {
@@ -123,6 +125,14 @@ class TestUsageStore extends UsageProviderStoreLifecycle<
 
   getState(): TestState {
     return this.state
+  }
+
+  setWriteOverride(writeOverride: () => Promise<void>): void {
+    this.writeOverride = writeOverride
+  }
+
+  protected override writeToDisk(): Promise<void> {
+    return this.writeOverride?.() ?? super.writeToDisk()
   }
 }
 
@@ -256,6 +266,39 @@ describe('UsageProviderStoreLifecycle', () => {
       sessions: [{ id: 'new-target' }],
       dailyAggregates: []
     })
+    await Promise.all([firstRefresh, targetRefresh])
+
+    expect(store.getState().processedSources).toEqual([{ id: 'new-target' }])
+  })
+
+  it('does not drop a target refresh queued between scan completion and cleanup', async () => {
+    const writeGate = createDeferred<void>()
+    const writeOverride = vi.fn(() => writeGate.promise)
+    scan
+      .mockResolvedValueOnce({
+        processedSources: [{ id: 'old-target' }],
+        sessions: [{ id: 'old-target' }],
+        dailyAggregates: []
+      })
+      .mockResolvedValueOnce({
+        processedSources: [{ id: 'new-target' }],
+        sessions: [{ id: 'new-target' }],
+        dailyAggregates: []
+      })
+    const store = createStore()
+    store.setWriteOverride(writeOverride)
+    store.replaceState(makeState({ scanState: { enabled: true } }))
+
+    const firstRefresh = store.refresh(true)
+    await vi.waitFor(() => expect(writeOverride).toHaveBeenCalledTimes(1))
+
+    let targetRefresh: Promise<unknown> | undefined
+    writeGate.resolve()
+    queueMicrotask(() => {
+      targetRefresh = store.refresh(true, { rerunIfScanning: true })
+    })
+
+    await vi.waitFor(() => expect(scan).toHaveBeenCalledTimes(2))
     await Promise.all([firstRefresh, targetRefresh])
 
     expect(store.getState().processedSources).toEqual([{ id: 'new-target' }])
