@@ -166,8 +166,11 @@ export abstract class UsageProviderStoreLifecycle<
           await this.writeToDisk().catch(() => {})
         }
       } while (this.rescanRequested)
-    })().finally(() => {
+    })().finally(async () => {
       this.scanPromise = null
+      if (this.rescanRequested) {
+        await this.runScan(false)
+      }
     })
 
     await this.scanPromise
