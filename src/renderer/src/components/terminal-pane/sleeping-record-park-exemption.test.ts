@@ -11,7 +11,7 @@ function sleepingRecord(
     worktreeId: 'wt-1',
     agent: 'claude',
     providerSession: { key: 'session_id', id: 'session-1' },
-    prompt: 'p',
+    prompt: 'prompt',
     state: 'working',
     capturedAt: 1,
     updatedAt: 1,
@@ -20,38 +20,31 @@ function sleepingRecord(
 }
 
 describe('selectSleepingRecordParkExemptTabIds', () => {
-  it('derives the owning tab id from a canonical paneKey', () => {
-    const records = { [`tab-1:${LEAF_ID}`]: sleepingRecord({ paneKey: `tab-1:${LEAF_ID}` }) }
+  it.each([
+    [`tab-1:${LEAF_ID}`, 'tab-1'],
+    ['tab-legacy:0', 'tab-legacy']
+  ])('derives the owner from a valid pane key (%s)', (paneKey, tabId) => {
+    const records = { [paneKey]: sleepingRecord({ paneKey }) }
 
-    expect([...selectSleepingRecordParkExemptTabIds(records, 'wt-1')]).toEqual(['tab-1'])
+    expect([...selectSleepingRecordParkExemptTabIds(records, 'wt-1')]).toEqual([tabId])
   })
 
-  it('derives the owning tab id from a legacy numeric paneKey', () => {
-    const records = { 'tab-1:0': sleepingRecord({ paneKey: 'tab-1:0' }) }
+  it('prefers the persisted tab id over the pane key owner', () => {
+    const paneKey = `tab-stale:${LEAF_ID}`
+    const records = { [paneKey]: sleepingRecord({ paneKey, tabId: 'tab-current' }) }
 
-    expect([...selectSleepingRecordParkExemptTabIds(records, 'wt-1')]).toEqual(['tab-1'])
+    expect([...selectSleepingRecordParkExemptTabIds(records, 'wt-1')]).toEqual(['tab-current'])
   })
 
-  it('prefers the record tabId over the paneKey', () => {
+  it('does not invent an owner for a delimiter-less pane key', () => {
     const records = {
-      [`tab-1:${LEAF_ID}`]: sleepingRecord({ paneKey: `tab-1:${LEAF_ID}`, tabId: 'tab-real' })
+      'orphan-pane-key': sleepingRecord({ paneKey: 'orphan-pane-key' })
     }
 
-    expect([...selectSleepingRecordParkExemptTabIds(records, 'wt-1')]).toEqual(['tab-real'])
+    expect([...selectSleepingRecordParkExemptTabIds(records, 'wt-1')]).toEqual([])
   })
 
-  it('exempts nothing for a paneKey with no delimiter', () => {
-    // Why: slice(0, indexOf(':')) with no ":" is slice(0, -1) — a truncated tab id
-    // that owns nothing, so the tab really holding the record got parked.
-    const records = { 'orphan-pane-key': sleepingRecord({ paneKey: 'orphan-pane-key' }) }
-
-    const exempt = selectSleepingRecordParkExemptTabIds(records, 'wt-1')
-
-    expect(exempt.has('orphan-pane-ke')).toBe(false)
-    expect([...exempt]).toEqual([])
-  })
-
-  it('skips records from other worktrees and passive-completed evidence', () => {
+  it('skips records that cannot resume in this worktree', () => {
     const records = {
       [`tab-other:${LEAF_ID}`]: sleepingRecord({
         paneKey: `tab-other:${LEAF_ID}`,

@@ -2,9 +2,9 @@
 import type { StateCreator } from 'zustand'
 import type { AppState } from '../types'
 import {
+  agentSubagentsEqual,
   AGENT_STATUS_STALE_AFTER_MS,
   AGENT_STATE_HISTORY_MAX,
-  agentSubagentsEqual,
   type AgentStateHistoryEntry,
   type AgentStatusEntry,
   type AgentStatusOrchestrationContext,
@@ -133,6 +133,7 @@ export type AgentStatusMetadata = {
   providerSession?: AgentProviderSessionMetadata
   launchConfig?: SleepingAgentLaunchConfig
   launchToken?: string
+  terminalResumeEligible?: false
 }
 
 export type AgentStatusUpdate = {
@@ -599,7 +600,11 @@ function sleepingRecordFromEntry(args: {
   origin?: SleepingAgentSessionRecord['origin']
 }): SleepingAgentSessionRecord | null {
   const agent = args.entry.agentType
-  if (!isResumableTuiAgent(agent) || !args.entry.providerSession) {
+  if (
+    args.entry.terminalResumeEligible === false ||
+    !isResumableTuiAgent(agent) ||
+    !args.entry.providerSession
+  ) {
     return null
   }
   if (!getAgentResumeArgv(agent, args.entry.providerSession)) {
@@ -1540,7 +1545,7 @@ export const createAgentStatusSlice: StateCreator<AppState, [], [], AgentStatusS
         storeGet().setGeneratedTabTitlesFromAgentPrompts(generatedTabTitleUpdates)
       }
       if (freshnessRequested) {
-        queueMicrotask(() => freshness.schedule())
+        freshness.scheduleDeferred()
       }
       for (const effect of effects) {
         effect()
@@ -1572,7 +1577,7 @@ export const createAgentStatusSlice: StateCreator<AppState, [], [], AgentStatusS
       batchedAgentStatusFreshnessRequested ||= acceptedInBatch
       return
     }
-    queueMicrotask(() => freshness.schedule())
+    freshness.scheduleDeferred()
   }
 
   const clearSleepingAgentSessionsByPaneKey = (paneKeys: readonly string[]): void => {
@@ -1690,7 +1695,7 @@ export const createAgentStatusSlice: StateCreator<AppState, [], [], AgentStatusS
         }
       })
       if (hadLive) {
-        queueMicrotask(() => freshness.schedule())
+        freshness.scheduleDeferred()
       }
       if (typeof window !== 'undefined') {
         window.api?.agentStatus?.retirePaneAuthority?.(ownerPaneKey)
@@ -2350,6 +2355,7 @@ export const createAgentStatusSlice: StateCreator<AppState, [], [], AgentStatusS
           // card; parseAgentStatusPayload clears it on tool/state change.
           interactivePrompt: payload.interactivePrompt,
           lastAssistantMessage: payload.lastAssistantMessage,
+          lastAssistantMessageIsToolOutput: payload.lastAssistantMessageIsToolOutput,
           ...(lastCompletedAssistantMessage ? { lastCompletedAssistantMessage } : {}),
           // Why: reused panes can start non-orchestrated work; only final done rows keep the
           // previous lineage fallback so completed children stay grouped.
@@ -2359,6 +2365,9 @@ export const createAgentStatusSlice: StateCreator<AppState, [], [], AgentStatusS
             ? existing?.subagents
             : payload.subagents,
           ...(providerSession ? { providerSession } : {}),
+          ...(metadata?.terminalResumeEligible === false
+            ? { terminalResumeEligible: false as const }
+            : {}),
           ...(promptInteractionKey ? { promptInteractionKey } : {}),
           ...(payload.restoredUnconfirmed ? { restoredUnconfirmed: true } : {}),
           // Why: `updatedAt` cannot order two writes inside one millisecond — and the accept check
@@ -2448,6 +2457,7 @@ export const createAgentStatusSlice: StateCreator<AppState, [], [], AgentStatusS
             entry.toolName !== existing.toolName ||
             entry.toolInput !== existing.toolInput ||
             entry.lastAssistantMessage !== existing.lastAssistantMessage ||
+            entry.lastAssistantMessageIsToolOutput !== existing.lastAssistantMessageIsToolOutput ||
             entry.orchestration !== existing.orchestration ||
             entry.subagents !== existing.subagents ||
             entry.providerSession !== existing.providerSession ||
@@ -2712,7 +2722,7 @@ export const createAgentStatusSlice: StateCreator<AppState, [], [], AgentStatusS
           sortEpoch: s.sortEpoch + 1
         }
       })
-      queueMicrotask(() => freshness.schedule())
+      freshness.scheduleDeferred()
     },
 
     removeAgentStatusByTabPrefix: (tabIdPrefix) => {
@@ -2762,7 +2772,7 @@ export const createAgentStatusSlice: StateCreator<AppState, [], [], AgentStatusS
           sortEpoch: s.sortEpoch + 1
         }
       })
-      queueMicrotask(() => freshness.schedule())
+      freshness.scheduleDeferred()
     },
 
     clearTransientAgentStatuses: (connectionId, clearedAt) => {
@@ -2812,7 +2822,7 @@ export const createAgentStatusSlice: StateCreator<AppState, [], [], AgentStatusS
         }
       })
       if (removed) {
-        queueMicrotask(() => freshness.schedule())
+        freshness.scheduleDeferred()
       }
     },
 
@@ -2894,7 +2904,7 @@ export const createAgentStatusSlice: StateCreator<AppState, [], [], AgentStatusS
       })
       // Why: freshness.schedule only matters when the live map changed, so gate on the live presence observed inside set() — no-op/retained-only drops skip it.
       if (liveExisted) {
-        queueMicrotask(() => freshness.schedule())
+        freshness.scheduleDeferred()
       }
       // Why: propagate the dismissal to the main-process hook cache so the on-disk cache doesn't re-hydrate this row on next launch. Fire-and-forget.
       // Why: the typeof window guard keeps the slice usable from the node test env, where window is undefined.
@@ -2917,7 +2927,7 @@ export const createAgentStatusSlice: StateCreator<AppState, [], [], AgentStatusS
         return dropped.patch
       })
       if (hadLive) {
-        queueMicrotask(() => freshness.schedule())
+        freshness.scheduleDeferred()
       }
       if (typeof window !== 'undefined') {
         window.api?.agentStatus?.dropByTabPrefix?.(tabIdPrefix)
@@ -3024,7 +3034,7 @@ export const createAgentStatusSlice: StateCreator<AppState, [], [], AgentStatusS
         }
       })
       if (hadLive) {
-        queueMicrotask(() => freshness.schedule())
+        freshness.scheduleDeferred()
       }
     },
 
@@ -3172,7 +3182,7 @@ export const createAgentStatusSlice: StateCreator<AppState, [], [], AgentStatusS
         }
       })
       if (hadLive) {
-        queueMicrotask(() => freshness.schedule())
+        freshness.scheduleDeferred()
       }
     },
 
