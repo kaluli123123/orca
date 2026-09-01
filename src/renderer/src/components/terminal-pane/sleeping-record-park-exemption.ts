@@ -27,7 +27,7 @@ export function selectSleepingRecordParkExemptTabIds(
     if (record.automaticResumeBlockedBy || isPassiveCompletedHibernationEvidence(record)) {
       continue
     }
-    // Why the parsers: a delimiter-less paneKey must yield no tab id, not a truncated one.
+    // Why: malformed pane keys must yield no owner instead of a truncated tab id.
     const tabId =
       record.tabId ??
       parsePaneKey(record.paneKey)?.tabId ??
