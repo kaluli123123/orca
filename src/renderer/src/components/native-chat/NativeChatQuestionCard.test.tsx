@@ -27,7 +27,14 @@ afterEach(() => {
 
 function render(prompt: AskPrompt, onAnswer: (s: AskAnswerSelection[]) => void): void {
   act(() => {
-    root.render(<NativeChatQuestionCard prompt={prompt} onAnswer={onAnswer} onCancel={() => {}} />)
+    root.render(
+      <NativeChatQuestionCard
+        key={JSON.stringify(prompt.questions)}
+        prompt={prompt}
+        onAnswer={onAnswer}
+        onCancel={() => {}}
+      />
+    )
   })
 }
 
@@ -160,6 +167,17 @@ describe('NativeChatQuestionCard', () => {
     expect(container.textContent).not.toContain('Old option')
     clickAction('Skip')
     expect(onAnswer).not.toHaveBeenCalled()
+  })
+
+  it('keeps state when an equivalent prompt receives a new questions array', () => {
+    const onAnswer = vi.fn()
+    render(tabsOrSpaces, onAnswer)
+    clickOption('Spaces')
+
+    render({ questions: [...tabsOrSpaces.questions] }, onAnswer)
+    clickAction('Submit')
+
+    expect(onAnswer).toHaveBeenCalledWith([{ indices: [1], other: '' }])
   })
 
   it('carries free text through as the other answer', () => {
