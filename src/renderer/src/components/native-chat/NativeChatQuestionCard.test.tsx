@@ -33,7 +33,6 @@ function render(
   act(() => {
     root.render(
       <NativeChatQuestionCard
-        key={JSON.stringify(prompt.questions)}
         prompt={prompt}
         onAnswer={onAnswer}
         onCancel={() => {}}
