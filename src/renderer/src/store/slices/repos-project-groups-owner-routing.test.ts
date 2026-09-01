@@ -73,6 +73,33 @@ function runtimeRpcResponse(result: unknown) {
 }
 
 describe('project group mutations route to the owning host', () => {
+  it('moves a source repo to a group owned by another host', async () => {
+    const sourceRepo: Repo = { ...baseRepo, executionHostId: 'local' }
+    const destinationGroup: ProjectGroup = {
+      ...folderScanGroup,
+      executionHostId: 'runtime:env-1'
+    }
+    const movedRepo = { ...sourceRepo, projectGroupId: destinationGroup.id, projectGroupOrder: 1 }
+    runtimeEnvironmentCall.mockResolvedValue(runtimeRpcResponse({ repo: movedRepo }))
+    const store = createTestStore()
+    store.setState({
+      settings: { activeRuntimeEnvironmentId: null } as never,
+      repos: [sourceRepo],
+      projectGroups: [destinationGroup]
+    })
+
+    await expect(
+      store.getState().moveProjectToGroup(sourceRepo.id, destinationGroup.id, 1)
+    ).resolves.toBe(true)
+
+    expect(runtimeEnvironmentCall).toHaveBeenCalledWith({
+      selector: 'env-1',
+      method: 'projectGroup.moveProject',
+      params: { repo: sourceRepo.id, groupId: destinationGroup.id, order: 1 },
+      timeoutMs: 15_000
+    })
+  })
+
   it('renames a runtime-owned folder-scan group while the local host is focused', async () => {
     const runtimeGroup: ProjectGroup = { ...folderScanGroup, executionHostId: 'runtime:env-1' }
     runtimeEnvironmentCall.mockResolvedValue(
