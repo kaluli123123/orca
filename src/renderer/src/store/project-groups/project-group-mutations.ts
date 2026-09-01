@@ -256,15 +256,15 @@ export function createProjectGroupMutationActions(
         if (groupId && !resolvedGroup) {
           return false
         }
-        const repoHostId = resolvedGroup?.ownerHostId ?? options?.executionHostId
-        if (
-          !findRepoForHost(get().repos, projectId, {
-            settings: get().settings,
-            hostId: repoHostId
-          })
-        ) {
+        // Why: the source repo and destination group may belong to different hosts.
+        const sourceRepo = findRepoForHost(get().repos, projectId, {
+          settings: get().settings,
+          hostId: options?.executionHostId
+        })
+        if (!sourceRepo) {
           return false
         }
+        const repoHostId = getRepoExecutionHostId(sourceRepo)
         const target =
           resolvedGroup?.target ??
           getActiveRuntimeTarget(settingsForRepoOwner(get(), projectId, repoHostId))
