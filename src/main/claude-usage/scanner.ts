@@ -26,6 +26,7 @@ const FILE_SCAN_BATCH_SIZE = 4
 
 export type ClaudeUsageScanTarget = {
   configDir: string
+  includeWslHomes?: boolean
 }
 
 // Why setImmediate: setTimeout(0) is clamped to ~1ms, and this yields once per
@@ -61,9 +62,7 @@ export async function scanClaudeUsageFiles(
   sessions: ClaudeUsageSession[]
   dailyAggregates: ClaudeUsageDailyAggregate[]
 }> {
-  const files = await listClaudeTranscriptFiles(
-    target ? { configDir: target.configDir } : undefined
-  )
+  const files = await listClaudeTranscriptFiles(target)
   const previousByPath = new Map(previousProcessedFiles.map((file) => [file.path, file]))
   const worktreeLookup = await buildWorktreeLookup(worktrees)
 

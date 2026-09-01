@@ -115,7 +115,8 @@ describe('ClaudeRuntimeAuthService', () => {
     const service = new ClaudeRuntimeAuthService(store as never)
 
     await expect(service.getUsageScanTarget()).resolves.toEqual({
-      configDir: String.raw`\\wsl.localhost\Ubuntu\home\alice\.claude-alt`
+      configDir: String.raw`\\wsl.localhost\Ubuntu\home\alice\.claude-alt`,
+      includeWslHomes: false
     })
   })
 

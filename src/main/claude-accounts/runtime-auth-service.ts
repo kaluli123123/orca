@@ -71,7 +71,7 @@ export class ClaudeRuntimeAuthService extends ClaudeRuntimeAuthSync {
     const target = this.resolveWslDefaultTarget(getInitialClaudeRateLimitTarget(settings))
     const normalizedTarget = normalizeClaudeAccountSelectionTarget(target)
     if (normalizedTarget.runtime !== 'wsl') {
-      return { configDir: this.pathResolver.getRuntimePaths().configDir }
+      return { configDir: this.pathResolver.getRuntimePaths().configDir, includeWslHomes: true }
     }
 
     const activeAccountId = getSelectedClaudeAccountIdForTarget(settings, normalizedTarget)
@@ -91,7 +91,8 @@ export class ClaudeRuntimeAuthService extends ClaudeRuntimeAuthSync {
       throw new Error('Selected WSL Claude runtime is unavailable')
     }
     return {
-      configDir: toWindowsWslPath(linuxConfigDir, distro)
+      configDir: toWindowsWslPath(linuxConfigDir, distro),
+      includeWslHomes: false
     }
   }
 
