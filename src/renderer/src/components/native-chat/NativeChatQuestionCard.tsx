@@ -17,6 +17,13 @@ export type NativeChatQuestionCardProps = {
   answerInputRef?: RefObject<HTMLInputElement | null>
 }
 
+type QuestionCardState = {
+  promptIdentity: string
+  index: number
+  selections: number[][]
+  otherText: string[]
+}
+
 /**
  * Native renderer for an agent's AskUserQuestion prompt: a numbered pick-list
  * (mobile/Claude-Code parity) with a header + close, a hover-highlighted row per
@@ -31,11 +38,25 @@ export function NativeChatQuestionCard({
   onCancel,
   answerInputRef
 }: NativeChatQuestionCardProps): React.JSX.Element | null {
-  const [index, setIndex] = useState(0)
+  const promptIdentity = JSON.stringify(prompt.questions)
+  const [state, setState] = useState<QuestionCardState>(() => ({
+    promptIdentity,
+    index: 0,
+    selections: prompt.questions.map(() => []),
+    otherText: prompt.questions.map(() => '')
+  }))
   // Keep option identity by index: labels are display text and are not guaranteed
   // unique, while Claude's selector commits the numbered row (STA-1860).
-  const [selections, setSelections] = useState<number[][]>(() => prompt.questions.map(() => []))
-  const [otherText, setOtherText] = useState<string[]>(() => prompt.questions.map(() => ''))
+  const activeState =
+    state.promptIdentity === promptIdentity
+      ? state
+      : {
+          promptIdentity,
+          index: 0,
+          selections: prompt.questions.map(() => []),
+          otherText: prompt.questions.map(() => '')
+        }
+  const { index, selections, otherText } = activeState
   const total = prompt.questions.length
   const activeIndex = Math.min(index, Math.max(total - 1, 0))
   const isLast = activeIndex === total - 1
@@ -45,10 +66,11 @@ export function NativeChatQuestionCard({
   }
 
   const setOther = (qi: number, value: string): void => {
-    setOtherText((prev) => {
-      const next = [...prev]
+    setState((previous) => {
+      const base = previous.promptIdentity === promptIdentity ? previous : activeState
+      const next = [...base.otherText]
       next[qi] = value
-      return next
+      return { ...base, otherText: next }
     })
   }
 
@@ -81,7 +103,13 @@ export function NativeChatQuestionCard({
     if (isLast) {
       submitAll(sel, oth)
     } else {
-      setIndex((i) => Math.min(i + 1, total - 1))
+      setState((previous) => ({
+        ...activeState,
+        index: Math.min(
+          previous.promptIdentity === promptIdentity ? previous.index + 1 : 1,
+          total - 1
+        )
+      }))
     }
   }
 
@@ -89,8 +117,9 @@ export function NativeChatQuestionCard({
   // trailing Send/Next button. (Auto-submitting on the first click dismissed the
   // card before the user saw any feedback, which read as "nothing happened".)
   const pickOption = (optionIndex: number): void => {
-    setSelections((prev) => {
-      const next = prev.map((s) => [...s])
+    setState((previous) => {
+      const base = previous.promptIdentity === promptIdentity ? previous : activeState
+      const next = base.selections.map((s) => [...s])
       const cur = next[activeIndex] ?? []
       if (q.multiSelect) {
         next[activeIndex] = cur.includes(optionIndex)
@@ -99,7 +128,7 @@ export function NativeChatQuestionCard({
       } else {
         next[activeIndex] = cur.includes(optionIndex) ? [] : [optionIndex]
       }
-      return next
+      return { ...base, selections: next }
     })
   }
 
@@ -135,7 +164,12 @@ export function NativeChatQuestionCard({
                 key={i}
                 type="button"
                 disabled={isSubmitting}
-                onClick={() => setIndex(i)}
+                onClick={() =>
+                  setState((previous) => ({
+                    ...(previous.promptIdentity === promptIdentity ? previous : activeState),
+                    index: i
+                  }))
+                }
                 className={cn(
                   'flex shrink-0 items-center gap-1 rounded-md px-2 py-1 text-xs font-medium disabled:pointer-events-none',
                   i === index
