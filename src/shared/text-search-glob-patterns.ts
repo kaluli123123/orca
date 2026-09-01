@@ -39,10 +39,11 @@ export function toGitGlobPathspec(glob: string, exclude?: boolean): string {
 }
 
 export function toGitGlobPathspecs(glob: string, exclude?: boolean): string[] {
+  const directoryOnly = /\/+$/u.test(glob)
   const trimmed = glob.replace(/\/+$/, '')
   if (!trimmed) {
     return []
   }
   const pathspec = toGitGlobPathspec(trimmed, exclude)
-  return [pathspec, `${pathspec}/**`]
+  return directoryOnly ? [`${pathspec}/**`] : [pathspec, `${pathspec}/**`]
 }

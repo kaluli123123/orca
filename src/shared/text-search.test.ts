@@ -276,11 +276,11 @@ describe('toGitGlobPathspecs', () => {
     expect(toGitGlobPathspecs('build/out')).toEqual([':(glob)build/out', ':(glob)build/out/**'])
   })
 
-  it('does not emit a double slash for a trailing-slash directory pattern', () => {
+  it('keeps trailing-slash patterns directory-only', () => {
     expect(toGitGlobPathspecs('node_modules/', true)).toEqual([
-      ':(exclude,glob)**/node_modules',
       ':(exclude,glob)**/node_modules/**'
     ])
+    expect(toGitGlobPathspecs('src/')).toEqual([':(glob)**/src/**'])
   })
 
   it('drops a pattern that is only separators', () => {
