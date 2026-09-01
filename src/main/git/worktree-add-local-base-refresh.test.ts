@@ -358,7 +358,7 @@ describe('addWorktree', () => {
   it('skips updating the local branch when it has diverged', async () => {
     gitExecFileAsyncMock.mockResolvedValueOnce({ stdout: 'abc123\n' }) // rev-parse refs/remotes/origin/main^{commit}
     gitExecFileAsyncMock.mockRejectedValueOnce(new Error('not a fast-forward'))
-    gitExecFileAsyncMock.mockResolvedValueOnce({ stdout: 'refs/heads/main\n' }) // for-each-ref refs/heads/main (exists)
+    gitExecFileAsyncMock.mockResolvedValueOnce({ stdout: '' }) // show-ref refs/heads/main (exists)
     gitExecFileAsyncMock.mockResolvedValueOnce({ stdout: '' }) // worktree add
     resolveCreationBaseConfigWrite()
     gitExecFileAsyncMock.mockRejectedValueOnce(Object.assign(new Error('key unset'), { code: 1 })) // config --get push.autoSetupRemote (unset)
@@ -383,7 +383,7 @@ describe('addWorktree', () => {
         expect.objectContaining({ cwd: '/repo' })
       ],
       [
-        ['for-each-ref', '--count=1', '--format=%(refname)', 'refs/heads/main'],
+        ['show-ref', '--verify', '--quiet', '--', 'refs/heads/main'],
         expect.objectContaining({ cwd: '/repo' })
       ],
       [
@@ -430,7 +430,7 @@ describe('addWorktree', () => {
           "fatal: ambiguous argument 'refs/heads/feature-x...refs/remotes/origin/feature-x': unknown revision or path not in the working tree."
         )
       ) // rev-list: refs/heads/feature-x does not exist yet
-      .mockResolvedValueOnce({ stdout: '' }) // for-each-ref refs/heads/feature-x (missing)
+      .mockRejectedValueOnce(Object.assign(new Error('missing ref'), { code: 1 })) // show-ref refs/heads/feature-x (missing)
       .mockResolvedValueOnce({ stdout: '' }) // worktree add
       .mockResolvedValueOnce({ stdout: '' }) // config --local --replace-all branch.<branch>.base
       .mockRejectedValueOnce(Object.assign(new Error('key unset'), { code: 1 })) // config --get push.autoSetupRemote (unset)
@@ -464,7 +464,7 @@ describe('addWorktree', () => {
     gitExecFileAsyncMock
       .mockResolvedValueOnce({ stdout: 'abc123\n' }) // rev-parse --verify --quiet refs/remotes/origin/main^{commit}
       .mockRejectedValueOnce(new Error('unknown revision refs/heads/main')) // rev-list: no local main
-      .mockResolvedValueOnce({ stdout: '' }) // for-each-ref refs/heads/main (missing)
+      .mockRejectedValueOnce(Object.assign(new Error('missing ref'), { code: 1 })) // show-ref refs/heads/main (missing)
       .mockResolvedValueOnce({ stdout: '' }) // worktree add
       .mockResolvedValueOnce({ stdout: '' }) // config --local --replace-all branch.<branch>.base
       .mockRejectedValueOnce(Object.assign(new Error('key unset'), { code: 1 })) // config --get push.autoSetupRemote (unset)
@@ -474,9 +474,10 @@ describe('addWorktree', () => {
 
     expect(result.localBaseRefRefresh).toBeUndefined()
     expect(gitExecFileAsyncMock.mock.calls.map((call) => call[0])).toContainEqual([
-      'for-each-ref',
-      '--count=1',
-      '--format=%(refname)',
+      'show-ref',
+      '--verify',
+      '--quiet',
+      '--',
       'refs/heads/main'
     ])
   })
@@ -486,7 +487,7 @@ describe('addWorktree', () => {
     gitExecFileAsyncMock
       .mockResolvedValueOnce({ stdout: 'abc123\n' }) // rev-parse --verify --quiet refs/remotes/origin/main^{commit}
       .mockRejectedValueOnce(new Error('rev-list failed')) // drift probe
-      .mockRejectedValueOnce(new Error('fatal: not a git repository')) // for-each-ref probe could not run
+      .mockRejectedValueOnce(new Error('fatal: not a git repository')) // show-ref probe could not run
       .mockResolvedValueOnce({ stdout: '' }) // worktree add
       .mockResolvedValueOnce({ stdout: '' }) // config --local --replace-all branch.<branch>.base
       .mockRejectedValueOnce(Object.assign(new Error('key unset'), { code: 1 })) // config --get push.autoSetupRemote (unset)
@@ -526,7 +527,7 @@ describe('addWorktree', () => {
     gitExecFileAsyncMock.mockResolvedValueOnce({ stdout: 'new-local\n' }) // rev-parse refs/heads/main^{commit}
     gitExecFileAsyncMock.mockResolvedValueOnce({ stdout: 'remote-main\n' }) // rev-parse refs/remotes/origin/main^{commit}
     gitExecFileAsyncMock.mockRejectedValueOnce(new Error('not an ancestor')) // merge-base captured OIDs
-    gitExecFileAsyncMock.mockResolvedValueOnce({ stdout: 'refs/heads/main\n' }) // for-each-ref refs/heads/main (exists)
+    gitExecFileAsyncMock.mockResolvedValueOnce({ stdout: '' }) // show-ref refs/heads/main (exists)
     gitExecFileAsyncMock.mockResolvedValueOnce({ stdout: '' }) // worktree add
     resolveCreationBaseConfigWrite()
     gitExecFileAsyncMock.mockRejectedValueOnce(Object.assign(new Error('key unset'), { code: 1 })) // config --get push.autoSetupRemote (unset)
@@ -563,7 +564,7 @@ describe('addWorktree', () => {
         expect.objectContaining({ cwd: '/repo' })
       ],
       [
-        ['for-each-ref', '--count=1', '--format=%(refname)', 'refs/heads/main'],
+        ['show-ref', '--verify', '--quiet', '--', 'refs/heads/main'],
         expect.objectContaining({ cwd: '/repo' })
       ],
       [
