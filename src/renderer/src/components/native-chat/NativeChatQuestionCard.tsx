@@ -1,4 +1,4 @@
-import { useEffect, useState, type RefObject } from 'react'
+import { useState, type RefObject } from 'react'
 import { Check, Pencil, X } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { translate } from '@/i18n/i18n'
@@ -36,13 +36,6 @@ export function NativeChatQuestionCard({
   // unique, while Claude's selector commits the numbered row (STA-1860).
   const [selections, setSelections] = useState<number[][]>(() => prompt.questions.map(() => []))
   const [otherText, setOtherText] = useState<string[]>(() => prompt.questions.map(() => ''))
-  const promptIdentity = JSON.stringify(prompt.questions)
-  useEffect(() => {
-    setIndex(0)
-    setSelections(prompt.questions.map(() => []))
-    setOtherText(prompt.questions.map(() => ''))
-  }, [promptIdentity, prompt.questions])
-
   const total = prompt.questions.length
   const activeIndex = Math.min(index, Math.max(total - 1, 0))
   const isLast = activeIndex === total - 1
