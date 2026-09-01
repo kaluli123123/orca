@@ -195,11 +195,13 @@ export function buildGitGrepArgs(query: string, opts: SearchOptionsLike): string
   gitArgs.push('-e', query, '--')
 
   let hasPathspecs = false
+  let hasIncludePathspecs = false
   if (opts.includePattern) {
     for (const pat of splitSearchGlobPatterns(opts.includePattern)) {
       const pathspecs = toGitGlobPathspecs(pat)
       gitArgs.push(...pathspecs)
       hasPathspecs ||= pathspecs.length > 0
+      hasIncludePathspecs ||= pathspecs.length > 0
     }
   }
   if (opts.excludePattern) {
@@ -209,8 +211,11 @@ export function buildGitGrepArgs(query: string, opts: SearchOptionsLike): string
       hasPathspecs ||= pathspecs.length > 0
     }
   }
-  // Why: git grep needs a pathspec to search the working tree; '.' means everything under cwd.
-  if (!hasPathspecs) {
+  // Why: an include made only of separators means no valid search path, not the whole repository.
+  if (opts.includePattern && !hasIncludePathspecs) {
+    gitArgs.push(':(top,literal).git')
+  } else if (!hasPathspecs) {
+    // Why: git grep needs a pathspec to search the working tree; '.' means everything under cwd.
     gitArgs.push('.')
   }
   return gitArgs

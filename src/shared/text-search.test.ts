@@ -355,6 +355,23 @@ describe('ingestGitGrepLine', () => {
     }
   })
 
+  it('does not broaden a separator-only include pattern to the repository', () => {
+    const rootPath = mkdtempSync(join(tmpdir(), 'orca-search-git-'))
+    try {
+      execFileSync('git', ['init'], { cwd: rootPath, stdio: 'ignore' })
+      writeFileSync(join(rootPath, 'target.ts'), 'needle\n')
+
+      expect(() =>
+        execFileSync('git', buildGitGrepArgs('needle', { includePattern: '/' }), {
+          cwd: rootPath,
+          stdio: 'ignore'
+        })
+      ).toThrow()
+    } finally {
+      rmSync(rootPath, { recursive: true, force: true })
+    }
+  })
+
   it('parses git grep null-delimited line, finds all submatch positions', () => {
     const acc = createAccumulator()
     const re = buildSubmatchRegex('foo', {})
