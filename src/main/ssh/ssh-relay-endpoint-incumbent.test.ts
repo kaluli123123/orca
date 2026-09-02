@@ -101,8 +101,22 @@ describe('parseRelayEndpointIncumbentProbe', () => {
 })
 
 describe('probeRelayEndpointIncumbent', () => {
-  it('never asserts death when the probe itself could not run', async () => {
-    execCommand.mockRejectedValueOnce(new Error('channel closed'))
+  it('uses a dedicated timeout for the remote incumbent probe', async () => {
+    execCommand.mockResolvedValueOnce(
+      probeOutput(['PRESENT=yes', 'LISTEN=refused', 'HOLDERS_SOURCE=unavailable'])
+    )
+
+    await probeRelayEndpointIncumbent({} as SshConnection, POSIX_HOST, '/usr/bin/node', SOCK)
+
+    expect(execCommand).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.any(String),
+      expect.objectContaining({ timeoutMs: 5_000 })
+    )
+  })
+
+  it('keeps a timed-out or rejected probe unverifiable and unenumerable', async () => {
+    execCommand.mockRejectedValueOnce(new Error('lsof timed out after 5s'))
     const incumbent = await probeRelayEndpointIncumbent(
       {} as SshConnection,
       POSIX_HOST,
@@ -110,6 +124,7 @@ describe('probeRelayEndpointIncumbent', () => {
       SOCK
     )
     expect(incumbent.verdict).toBe('unverifiable')
+    expect(incumbent.holdersEnumerable).toBe(false)
     expect(incumbent.holders).toEqual([])
   })
 
