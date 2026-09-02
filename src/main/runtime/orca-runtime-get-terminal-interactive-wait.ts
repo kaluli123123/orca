@@ -189,6 +189,8 @@ export class OrcaRuntimeWithGetTerminalInteractiveWait extends OrcaRuntimeWithAd
     const projectRuntime = repo.connectionId
       ? undefined
       : resolveLocalProjectRuntimeForRepo(this.requireStore(), repo)
+    const localRuntimeKind =
+      projectRuntime?.status === 'resolved' ? projectRuntime.runtime.kind : undefined
     let detected: string[]
     if (repo.connectionId) {
       const override = extractExecutableToken(settings.agentCmdOverrides?.[agent])
@@ -238,7 +240,7 @@ export class OrcaRuntimeWithGetTerminalInteractiveWait extends OrcaRuntimeWithAd
         !detected.includes(agent) &&
         override &&
         projectRuntime?.status !== 'repair-required' &&
-        projectRuntime?.runtime.kind !== 'wsl'
+        localRuntimeKind !== 'wsl'
       ) {
         const env = {
           ...(buildLocalPreflightEnv() ?? process.env),

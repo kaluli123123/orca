@@ -116,6 +116,26 @@ describe('validateOrchestrationAgentLauncherForRepo', () => {
     })
   })
 
+  it('reports a missing agent from a repair-required runtime without probing its override', async () => {
+    const runtime = createRuntime({ agentCmdOverrides: { amp: 'managed-amp' } })
+    resolveLocalProjectRuntimeForRepo.mockReturnValue({
+      status: 'repair-required',
+      repair: {
+        projectId: 'repo-1',
+        preferredRuntime: { kind: 'wsl', distro: 'Ubuntu' },
+        reason: 'wsl-unavailable',
+        source: 'project-override',
+        cacheKey: 'repo-1'
+      }
+    })
+    detectInstalledAgents.mockResolvedValue([])
+
+    await expect(
+      runtime.validateOrchestrationAgentLauncherForRepo('amp', 'repo-1')
+    ).rejects.toMatchObject({ code: 'agent_not_available' })
+    expect(isCommandOnLocalPath).not.toHaveBeenCalled()
+  })
+
   it('validates claude-teams through Claude on Windows', async () => {
     const runtime = createRuntime()
     vi.spyOn(runtime, 'showRepo').mockResolvedValue(repo() as never)
