@@ -100,8 +100,18 @@ export class RuntimeManagedWorktreeQueries {
         (!repoId || worktree.repoId === repoId) &&
         this.isVisible(worktree, matchers.get(worktree.repoId), sourceDefaultsSupported)
     )
+    const firstIndexByHost = worktrees.reduce(
+      (first, worktree, index) =>
+        first.has(worktree.hostId ?? 'legacy')
+          ? first
+          : first.set(worktree.hostId ?? 'legacy', index),
+      new Map<string, number>()
+    )
+    const selectedIndexes = new Set(
+      [...firstIndexByHost.values(), ...worktrees.map((_, index) => index)].slice(0, limit)
+    )
     return {
-      worktrees: worktrees.slice(0, limit),
+      worktrees: worktrees.filter((_worktree, index) => selectedIndexes.has(index)),
       totalCount: worktrees.length,
       truncated: worktrees.length > limit
     }
