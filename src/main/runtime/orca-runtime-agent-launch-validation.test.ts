@@ -1,13 +1,22 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { OrcaRuntimeService } from './orca-runtime'
 
-const detectInstalledAgents = vi.fn<(...args: never[]) => Promise<string[]>>()
-const detectRemoteAgents = vi.fn<(...args: never[]) => Promise<string[]>>()
-const detectWslCommandsOnPath = vi.fn<(...args: never[]) => Promise<Set<string>>>()
-const detectLocalManagedAgentCliPresence =
-  vi.fn<(...args: never[]) => Promise<Record<string, unknown>>>()
-const resolveLocalProjectRuntimeForRepo = vi.fn()
-const isCommandOnLocalPath = vi.fn()
+const {
+  detectInstalledAgents,
+  detectRemoteAgents,
+  detectWslCommandsOnPath,
+  detectLocalManagedAgentCliPresence,
+  resolveLocalProjectRuntimeForRepo,
+  isCommandOnLocalPath
+} = vi.hoisted(() => ({
+  detectInstalledAgents: vi.fn<(...args: never[]) => Promise<string[]>>(),
+  detectRemoteAgents: vi.fn<(...args: never[]) => Promise<string[]>>(),
+  detectWslCommandsOnPath: vi.fn<(...args: never[]) => Promise<Set<string>>>(),
+  detectLocalManagedAgentCliPresence:
+    vi.fn<(...args: never[]) => Promise<Record<string, unknown>>>(),
+  resolveLocalProjectRuntimeForRepo: vi.fn(),
+  isCommandOnLocalPath: vi.fn()
+}))
 
 vi.mock('../preflight/agent-detection', () => ({
   detectInstalledAgentsWithShellPathHydration: detectInstalledAgents,
