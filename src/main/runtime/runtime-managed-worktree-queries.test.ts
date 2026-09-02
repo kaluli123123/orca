@@ -156,13 +156,13 @@ describe('RuntimeManagedWorktreeQueries.list', () => {
     } as unknown as RuntimeStore
     const rows = [
       resolvedWorktree({ hostId: 'local', path: '/workspace/local-1' }),
-      resolvedWorktree({ hostId: 'local', path: '/workspace/local-2' }),
       resolvedWorktree({
         id: 'repo-ssh::/remote/app',
         repoId: 'repo-ssh',
         path: '/remote/app',
         hostId: 'ssh:box-1'
-      })
+      }),
+      resolvedWorktree({ hostId: 'local', path: '/workspace/local-2' })
     ]
 
     const result = await queries(store, rows).list(undefined, 2)
@@ -173,5 +173,15 @@ describe('RuntimeManagedWorktreeQueries.list', () => {
     ])
     expect(result.totalCount).toBe(3)
     expect(result.truncated).toBe(true)
+
+    const complete = await queries(store, rows).list(undefined, 3)
+
+    expect(complete.worktrees.map((worktree) => worktree.path)).toEqual([
+      '/workspace/local-1',
+      '/remote/app',
+      '/workspace/local-2'
+    ])
+    expect(complete.totalCount).toBe(3)
+    expect(complete.truncated).toBe(false)
   })
 })

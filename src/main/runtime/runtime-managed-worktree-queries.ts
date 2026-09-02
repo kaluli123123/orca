@@ -31,6 +31,7 @@ import { listRuntimeFolderWorkspaces } from './runtime-worktree-filesystem'
 import type { ResolvedWorktree } from './runtime-worktree-path-identity'
 import { resolveConfiguredWorktreeBasePaths } from '../../shared/worktree/configured-worktree-base-path'
 import { getRetiredNameRegistryForRepo } from '../worktree-name-retirement'
+import { selectHostFairWorktrees } from './runtime-worktree-host-selection'
 
 type Dependencies = {
   getStore(): RuntimeStore | null
@@ -42,11 +43,8 @@ type Dependencies = {
 
 /**
  * The destructive scan expectation for one repo, or undefined when this repo must not carry one.
- *
- * WSL-routed repos are excluded for the same reason the desktop listing excludes them: the listing
- * runs in the distro and reports Linux paths while metadata can hold UNC ones, and v1 cannot prove
- * those aliases equivalent. A runtime that needs repair throws rather than resolving routing, which
- * is likewise no basis for deleting rows.
+ * WSL-routed repos are excluded for the same reason the desktop listing excludes them: the listing runs in the distro and reports Linux paths while metadata can hold UNC ones, and v1 cannot prove
+ * those aliases equivalent. A runtime that needs repair throws rather than resolving routing, which is likewise no basis for deleting rows.
  */
 function captureLocalMetadataPruneExpectation(
   store: RuntimeStore,
@@ -100,18 +98,8 @@ export class RuntimeManagedWorktreeQueries {
         (!repoId || worktree.repoId === repoId) &&
         this.isVisible(worktree, matchers.get(worktree.repoId), sourceDefaultsSupported)
     )
-    const firstIndexByHost = worktrees.reduce(
-      (first, worktree, index) =>
-        first.has(worktree.hostId ?? 'legacy')
-          ? first
-          : first.set(worktree.hostId ?? 'legacy', index),
-      new Map<string, number>()
-    )
-    const selectedIndexes = new Set(
-      [...firstIndexByHost.values(), ...worktrees.map((_, index) => index)].slice(0, limit)
-    )
     return {
-      worktrees: worktrees.filter((_worktree, index) => selectedIndexes.has(index)),
+      worktrees: selectHostFairWorktrees(worktrees, limit),
       totalCount: worktrees.length,
       truncated: worktrees.length > limit
     }
