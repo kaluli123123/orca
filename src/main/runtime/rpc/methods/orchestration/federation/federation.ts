@@ -62,6 +62,10 @@ export const ORCHESTRATION_FEDERATION_ATTACH_METHODS = [
           repoSelector: params.repo as string,
           existingPlacement: 'an exact existing folder workspace'
         })
+        await runtime.validateOrchestrationAgentLauncherForRepo(
+          agent as TuiAgent,
+          params.repo as string
+        )
       }
 
       const db = runtime.getOrchestrationDb()
@@ -152,6 +156,9 @@ export const ORCHESTRATION_FEDERATION_ATTACH_METHODS = [
               `Worktree ${params.worktree} was not found on the selected worker server.`
             )
           })
+          if (agent) {
+            await runtime.validateOrchestrationAgentLauncherForRepo(agent, `id:${worktree.repoId}`)
+          }
           effects.push(
             { kind: 'worktree', action: 'reused', id: worktree.id },
             { kind: 'setup', action: 'not_applicable', state: 'not_applicable' }
