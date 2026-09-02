@@ -1,0 +1,76 @@
+import type { AppState } from '@/store/types'
+import {
+  createNormalizedPathInsideOrEqualMatcher,
+  normalizeRuntimePathForComparison
+} from '../../../shared/cross-platform-path'
+import { parseWorkspaceKey } from '../../../shared/workspace-scope'
+import { parseWslUncPath } from '../../../shared/wsl-paths'
+
+export type AiVaultResumeCwdState = Pick<AppState, 'folderWorkspaces' | 'worktreesByRepo'>
+
+export function getAiVaultResumeWorkspacePath(
+  state: AiVaultResumeCwdState,
+  worktreeId: string | null | undefined
+): string | null {
+  if (!worktreeId) {
+    return null
+  }
+  const workspaceScope = parseWorkspaceKey(worktreeId)
+  if (workspaceScope?.type === 'folder') {
+    return (
+      state.folderWorkspaces.find((workspace) => workspace.id === workspaceScope.folderWorkspaceId)
+        ?.folderPath ?? null
+    )
+  }
+  const targetWorktreeId =
+    workspaceScope?.type === 'worktree' ? workspaceScope.worktreeId : worktreeId
+  return (
+    Object.values(state.worktreesByRepo ?? {})
+      .flat()
+      .find((candidate) => candidate.id === targetWorktreeId)?.path ?? null
+  )
+}
+
+export function resolveAiVaultResumeCwd(args: {
+  state: AiVaultResumeCwdState
+  worktreeId?: string | null
+  sessionCwd: string | null
+  platform: NodeJS.Platform
+}): string | null {
+  const sessionCwd = args.sessionCwd
+  if (!sessionCwd) {
+    return null
+  }
+  const targetWorkspacePath = getAiVaultResumeWorkspacePath(args.state, args.worktreeId)
+  if (!targetWorkspacePath) {
+    return args.worktreeId ? null : sessionCwd
+  }
+
+  const targetCwd = normalizeAiVaultResumePathForPlatform(targetWorkspacePath, args.platform)
+  if (args.platform === 'linux' && isWindowsDrivePath(targetWorkspacePath)) {
+    // A Windows project path has no reliable Linux equivalent without the selected WSL distro.
+    return sessionCwd
+  }
+  const sessionPath = normalizeAiVaultResumePathForPlatform(sessionCwd, args.platform)
+  if (
+    createNormalizedPathInsideOrEqualMatcher(targetCwd)(
+      normalizeRuntimePathForComparison(sessionPath)
+    )
+  ) {
+    return sessionCwd
+  }
+
+  // The recorded workspace no longer matches the selected target; start at the healthy target root.
+  return targetCwd
+}
+
+function normalizeAiVaultResumePathForPlatform(path: string, platform: NodeJS.Platform): string {
+  if (platform === 'linux') {
+    return parseWslUncPath(path)?.linuxPath ?? path
+  }
+  return path
+}
+
+function isWindowsDrivePath(path: string): boolean {
+  return /^[A-Za-z]:[/\\]/.test(path)
+}
