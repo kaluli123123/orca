@@ -181,6 +181,29 @@ describe('relay native-deps cache on the deploy path', () => {
     expect(commands.some((c) => /\.orca-remote\/native\/linux-x64-[0-9a-f]{16}/.test(c))).toBe(true)
   })
 
+  it('installs per-directory when a linked probe names node-pty as missing', async () => {
+    const conn = makeMockConnection(sftpCapture)
+    feed(
+      firstInstall(RELAY_NATIVE_CACHE_LINKED, [
+        '', // chmod prebuilds, through the symlink
+        'ORCA-NATIVE-DEPS-MISSING:node-pty\nMISSING', // explicit evidence about the broken dep
+        '', // cat probe stderr
+        '', // rm probe stderr
+        '', // npm install, privately, after the prefix detaches the symlink
+        '', // chmod prebuilds
+        'ORCA-NPTY-PROBE-OK\n',
+        '', // rm probe stderr
+        '', // promotion attempt (the entry already exists, so it is declined)
+        ...LAUNCH_TAIL
+      ])
+    )
+
+    await expect(deployAndLaunchRelay(conn)).resolves.toBeDefined()
+
+    const install = execCommands().find((c) => c.includes('npm install')) ?? ''
+    expect(install).toContain('if [ -L node_modules ]; then rm -f node_modules; fi;')
+  })
+
   it('still installs on the first deploy, then publishes the tree the probe loaded', async () => {
     const conn = makeMockConnection(sftpCapture)
     feed(
