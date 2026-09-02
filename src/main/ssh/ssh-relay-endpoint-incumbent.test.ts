@@ -115,7 +115,7 @@ describe('probeRelayEndpointIncumbent', () => {
     )
   })
 
-  it('keeps a timed-out or rejected probe unverifiable and unenumerable', async () => {
+  it('keeps a confirmed timeout or rejection unverifiable and unenumerable', async () => {
     execCommand.mockRejectedValueOnce(new Error('lsof timed out after 5s'))
     const incumbent = await probeRelayEndpointIncumbent(
       {} as SshConnection,
@@ -126,6 +126,17 @@ describe('probeRelayEndpointIncumbent', () => {
     expect(incumbent.verdict).toBe('unverifiable')
     expect(incumbent.holdersEnumerable).toBe(false)
     expect(incumbent.holders).toEqual([])
+  })
+
+  it('rethrows an unconfirmed termination instead of masking it as unverifiable', async () => {
+    const unconfirmed = Object.assign(new Error('remote channel close was not confirmed'), {
+      sshChannelCloseConfirmed: false
+    })
+    execCommand.mockRejectedValueOnce(unconfirmed)
+
+    await expect(
+      probeRelayEndpointIncumbent({} as SshConnection, POSIX_HOST, '/usr/bin/node', SOCK)
+    ).rejects.toBe(unconfirmed)
   })
 
   it('does not shell out on Windows hosts, where the endpoint is a named pipe', async () => {
