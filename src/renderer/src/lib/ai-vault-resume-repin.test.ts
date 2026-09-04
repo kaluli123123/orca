@@ -188,6 +188,26 @@ describe('ai vault resume cwd repinning', () => {
     ).toContain('cmd /d /s /c')
   })
 
+  it('returns a Linux cwd when a valid WSL session is nested under the target', () => {
+    const state = makeState({
+      worktreePath: '\\\\wsl.localhost\\Ubuntu\\home\\alice\\repo'
+    })
+    const session = {
+      agent: 'claude' as const,
+      sessionId: 'session one',
+      cwd: '\\\\wsl.localhost\\Ubuntu\\home\\alice\\repo\\packages\\app',
+      codexHome: null
+    }
+
+    expect(
+      buildAiVaultResumeStartupForWorktree({
+        state,
+        worktreeId: 'repo-1::worktree-1',
+        session
+      })
+    ).toMatchObject({ cwd: '/home/alice/repo/packages/app' })
+  })
+
   it('does not propagate a session cwd when the selected workspace path is unavailable', () => {
     const state = makeState({ worktreePath: '/home/alice/unused' })
     const session = {

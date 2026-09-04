@@ -5,6 +5,10 @@ import {
 } from '../../../shared/cross-platform-path'
 import { parseWorkspaceKey } from '../../../shared/workspace-scope'
 import { parseWslUncPath } from '../../../shared/wsl-paths'
+import { getConnectionIdFromState } from './connection-owner-resolution'
+import { getRuntimeEnvironmentIdForWorktree } from './worktree-runtime-owner'
+import { runtimePathExists } from '@/runtime/runtime-file-metadata-client'
+import type { WorktreeRuntimeOwnerState } from './worktree-runtime-owner-state'
 
 export type AiVaultResumeCwdState = Pick<AppState, 'folderWorkspaces' | 'worktreesByRepo'>
 
@@ -36,6 +40,7 @@ export function resolveAiVaultResumeCwd(args: {
   worktreeId?: string | null
   sessionCwd: string | null
   platform: NodeJS.Platform
+  sessionCwdExists?: boolean
 }): string | null {
   const sessionCwd = args.sessionCwd
   if (!sessionCwd) {
@@ -52,16 +57,50 @@ export function resolveAiVaultResumeCwd(args: {
     return sessionCwd
   }
   const sessionPath = normalizeAiVaultResumePathForPlatform(sessionCwd, args.platform)
+  if (args.sessionCwdExists === false) {
+    return targetCwd
+  }
   if (
     createNormalizedPathInsideOrEqualMatcher(targetCwd)(
       normalizeRuntimePathForComparison(sessionPath)
     )
   ) {
-    return sessionCwd
+    return sessionPath
   }
 
   // The recorded workspace no longer matches the selected target; start at the healthy target root.
   return targetCwd
+}
+
+export async function aiVaultResumeCwdExists(args: {
+  state: AiVaultResumeCwdState & WorktreeRuntimeOwnerState
+  worktreeId: string
+  sessionCwd: string | null
+}): Promise<boolean> {
+  if (!args.sessionCwd) {
+    return true
+  }
+  const workspacePath = getAiVaultResumeWorkspacePath(args.state, args.worktreeId)
+  const connectionId =
+    getConnectionIdFromState(
+      args.state as Parameters<typeof getConnectionIdFromState>[0],
+      args.worktreeId
+    ) ?? undefined
+  if (getRuntimeEnvironmentIdForWorktree(args.state, args.worktreeId)) {
+    return runtimePathExists(
+      {
+        settings: args.state.settings,
+        worktreeId: args.worktreeId,
+        worktreePath: workspacePath,
+        connectionId
+      },
+      args.sessionCwd
+    )
+  }
+  if (connectionId) {
+    return window.api.fs.pathExists({ filePath: args.sessionCwd, connectionId })
+  }
+  return window.api.shell.pathExists(args.sessionCwd)
 }
 
 function normalizeAiVaultResumePathForPlatform(path: string, platform: NodeJS.Platform): string {

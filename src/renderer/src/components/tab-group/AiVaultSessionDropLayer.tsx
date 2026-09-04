@@ -244,11 +244,11 @@ export default function AiVaultSessionDropLayer({
             })
           : Promise.resolve<AiVaultPrepareSessionResumeResult>({ useRealCodexHome: false })
       void preparation
-        .then((result) => {
+        .then(async (result) => {
           const startup = result.useRealCodexHome
             ? payload.realHomeStartup
             : result.substituteCodexHome
-              ? buildAiVaultDropRepinStartup({
+              ? await buildAiVaultDropRepinStartup({
                   state: useAppStore.getState(),
                   payload,
                   substituteCodexHome: result.substituteCodexHome,
@@ -265,6 +265,8 @@ export default function AiVaultSessionDropLayer({
                 : 'Orca could not prepare this legacy Codex session. Retry resume.'
             )
           }
+          const startupCwd =
+            'cwd' in startup && typeof startup.cwd === 'string' ? startup.cwd : payload.sessionCwd
           const providerSession = getAiVaultAgentProviderSession({
             agent: payload.agent,
             sessionId: payload.sessionId,
@@ -274,7 +276,7 @@ export default function AiVaultSessionDropLayer({
             agent: payload.agent,
             worktreeId,
             command: startup.command,
-            ...(payload.sessionCwd ? { cwd: payload.sessionCwd } : {}),
+            ...(startupCwd ? { cwd: startupCwd } : {}),
             ...(startup.env ? { env: startup.env } : {}),
             ...(startup.envToDelete ? { envToDelete: startup.envToDelete } : {}),
             ...(startup.launchConfig ? { launchConfig: startup.launchConfig } : {}),

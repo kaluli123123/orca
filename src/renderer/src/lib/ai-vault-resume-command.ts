@@ -20,7 +20,7 @@ import type { AppState } from '@/store/types'
 import type { AiVaultSessionDragPayload } from '@/lib/ai-vault-session-drag'
 import { buildAgentResumeStartupPlan } from '@/lib/tui-agent-startup'
 import { LOCAL_EXECUTION_HOST_ID } from '../../../shared/execution-host'
-import { resolveAiVaultResumeCwd } from './ai-vault-resume-cwd'
+import { aiVaultResumeCwdExists, resolveAiVaultResumeCwd } from './ai-vault-resume-cwd'
 import {
   getAiVaultAgentProviderSession,
   getAiVaultResumeCodexHome,
@@ -82,10 +82,36 @@ export function buildAiVaultResumeCopyCommandForWorktree(args: AiVaultResumeWork
   return buildAiVaultResumeForWorktree(args, true, clearEnvNames).command
 }
 
+export async function buildAiVaultResumeCopyCommandForWorktreeAsync(
+  args: AiVaultResumeWorktreeArgs
+): Promise<string> {
+  const sessionCwdExists = await aiVaultResumeCwdExists({
+    state: args.state,
+    worktreeId: args.worktreeId ?? args.state.activeWorktreeId ?? '',
+    sessionCwd: args.session.cwd
+  })
+  const clearEnvNames =
+    args.session.agent === 'codex' && args.session.codexHome === null
+      ? (['CODEX_HOME', 'ORCA_CODEX_HOME'] as const)
+      : undefined
+  return buildAiVaultResumeForWorktree(args, true, clearEnvNames, sessionCwdExists).command
+}
+
 export function buildAiVaultResumeStartupForWorktree(
   args: AiVaultResumeWorktreeArgs
 ): AiVaultResumeStartup {
   return buildAiVaultResumeForWorktree(args, false)
+}
+
+export async function buildAiVaultResumeStartupForWorktreeAsync(
+  args: AiVaultResumeWorktreeArgs
+): Promise<AiVaultResumeStartup> {
+  const sessionCwdExists = await aiVaultResumeCwdExists({
+    state: args.state,
+    worktreeId: args.worktreeId ?? args.state.activeWorktreeId ?? '',
+    sessionCwd: args.session.cwd
+  })
+  return buildAiVaultResumeForWorktree(args, false, undefined, sessionCwdExists)
 }
 
 /**
@@ -98,7 +124,7 @@ export function buildAiVaultResumeStartupForWorktree(
  * prefix); only an ABSENT sessionCwd — a payload from an older serializer —
  * declines, because the original cwd is unrecoverable.
  */
-export function buildAiVaultDropRepinStartup(args: {
+export async function buildAiVaultDropRepinStartup(args: {
   state: AiVaultResumeWorktreeArgs['state']
   payload: Pick<
     AiVaultSessionDragPayload,
@@ -106,11 +132,11 @@ export function buildAiVaultDropRepinStartup(args: {
   >
   substituteCodexHome: string
   worktreeId: string
-}): AiVaultResumeStartup | null {
+}): Promise<AiVaultResumeStartup | null> {
   if (args.payload.sessionCwd === undefined || !args.payload.sessionFilePath) {
     return null
   }
-  return buildAiVaultResumeStartupForWorktree({
+  return buildAiVaultResumeStartupForWorktreeAsync({
     state: args.state,
     worktreeId: args.worktreeId,
     session: {
@@ -130,7 +156,8 @@ function buildAiVaultResumeForWorktree(
   embedCwd: boolean,
   /** Copy-path only: names the pasted line must strip off the agent itself.
    *  Spawned startups drop them through `envToDelete` instead. */
-  clearEnvNames?: readonly string[]
+  clearEnvNames?: readonly string[],
+  sessionCwdExists?: boolean
 ): AiVaultResumeStartup {
   const providerSession = getAiVaultAgentProviderSession(args.session)
   const platform =
@@ -157,7 +184,8 @@ function buildAiVaultResumeForWorktree(
     state: args.state,
     worktreeId: args.worktreeId,
     sessionCwd: args.session.cwd,
-    platform
+    platform,
+    sessionCwdExists
   })
   if (
     args.session.executionHostId &&
@@ -182,13 +210,13 @@ function buildAiVaultResumeForWorktree(
             cwd: resumeCwd,
             platform,
             // Copied commands must remain self-contained for the remote host's default shell.
-            shell: embedCwd ? undefined : liveShell
+            shell: undefined
           })
         : resumeCommand
     return {
       command,
       ...realHomeCodexResumeEnvDeletion(args.session),
-      ...(!embedCwd && resumeCwd ? { cwd: resumeCwd } : {}),
+      ...(!embedCwd && staleCwd && resumeCwd ? { cwd: resumeCwd } : {}),
       ...(providerSession ? { providerSession } : {})
     }
   }
