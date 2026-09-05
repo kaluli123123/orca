@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState, type CSSProperties } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { toast } from 'sonner'
 import {
   canResumeAiVaultSessionOnTarget,
@@ -12,75 +12,19 @@ import {
   hasAiVaultSessionDragData,
   readAiVaultSessionDragData
 } from '@/lib/ai-vault-session-drag'
-import {
-  buildAiVaultDropRepinStartup,
-  getAiVaultAgentProviderSession
-} from '@/lib/ai-vault-resume-command'
+import { getAiVaultAgentProviderSession } from '@/lib/ai-vault-resume-command'
+import { buildAiVaultDropLaunchStartup } from '@/lib/ai-vault-drop-resume-startup'
 import { launchAiVaultSessionInNewTab } from '@/lib/launch-ai-vault-session'
 import { aiVaultSessionNeedsResumePreparation } from '@/lib/ai-vault-session-resume-preparation'
 import { useAppStore } from '@/store'
-import { resolveDropZone } from './tab-drop-zone'
-import type { TabDropZone } from './useTabDragSplit'
 import { translate } from '@/i18n/i18n'
 import type { AiVaultPrepareSessionResumeResult } from '../../../../shared/ai-vault-resume-preparation'
 import { activateStructuredAgentSessionById } from '@/lib/structured-agent-session-tab-activation'
-
-type PaneDropTarget = {
-  groupId: string
-  zone: TabDropZone
-  overlayStyle: CSSProperties
-}
-
-function getZoneOverlayStyle(rect: DOMRect, layerRect: DOMRect, zone: TabDropZone): CSSProperties {
-  const left = rect.left - layerRect.left
-  const top = rect.top - layerRect.top
-  const width = rect.width
-  const height = rect.height
-
-  switch (zone) {
-    case 'up':
-      return { left, top, width, height: height / 2 }
-    case 'down':
-      return { left, top: top + height / 2, width, height: height / 2 }
-    case 'left':
-      return { left, top, width: width / 2, height }
-    case 'right':
-      return { left: left + width / 2, top, width: width / 2, height }
-    case 'center':
-      return { left, top, width, height }
-  }
-}
-
-function containsPoint(rect: DOMRect, x: number, y: number): boolean {
-  return x >= rect.left && x <= rect.right && y >= rect.top && y <= rect.bottom
-}
-
-function resolvePaneDropTarget(
-  worktreeId: string,
-  layerRect: DOMRect,
-  point: { x: number; y: number }
-): PaneDropTarget | null {
-  const elements = Array.from(
-    document.querySelectorAll<HTMLElement>('[data-tab-group-body-id][data-worktree-id]')
-  )
-  for (const element of elements) {
-    if (element.dataset.worktreeId !== worktreeId) {
-      continue
-    }
-    const groupId = element.dataset.tabGroupBodyId
-    const rect = element.getBoundingClientRect()
-    if (!groupId || rect.width <= 0 || rect.height <= 0 || !containsPoint(rect, point.x, point.y)) {
-      continue
-    }
-    const zone = resolveDropZone(rect, point)
-    return {
-      groupId,
-      zone,
-      overlayStyle: getZoneOverlayStyle(rect, layerRect, zone)
-    }
-  }
-  return null
-}
+import {
+  containsPoint,
+  resolvePaneDropTarget,
+  type PaneDropTarget
+} from './ai-vault-session-drop-target'
 
 export default function AiVaultSessionDropLayer({
   worktreeId,
@@ -245,16 +189,13 @@ export default function AiVaultSessionDropLayer({
           : Promise.resolve<AiVaultPrepareSessionResumeResult>({ useRealCodexHome: false })
       void preparation
         .then(async (result) => {
-          const startup = result.useRealCodexHome
-            ? payload.realHomeStartup
-            : result.substituteCodexHome
-              ? await buildAiVaultDropRepinStartup({
-                  state: useAppStore.getState(),
-                  payload,
-                  substituteCodexHome: result.substituteCodexHome,
-                  worktreeId
-                })
-              : payload
+          const startup = await buildAiVaultDropLaunchStartup({
+            state: useAppStore.getState(),
+            payload,
+            useRealCodexHome: result.useRealCodexHome,
+            substituteCodexHome: result.substituteCodexHome,
+            worktreeId
+          })
           if (!startup) {
             // Why: the host just proved the prebuilt command pins another
             // account's home, so an unrepinnable payload (older serializer)

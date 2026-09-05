@@ -76,6 +76,7 @@ export async function aiVaultResumeCwdExists(args: {
   state: AiVaultResumeCwdState & WorktreeRuntimeOwnerState
   worktreeId: string
   sessionCwd: string | null
+  platform: NodeJS.Platform
 }): Promise<boolean> {
   if (!args.sessionCwd) {
     return true
@@ -87,6 +88,18 @@ export async function aiVaultResumeCwdExists(args: {
       args.worktreeId
     ) ?? undefined
   if (getRuntimeEnvironmentIdForWorktree(args.state, args.worktreeId)) {
+    if (!workspacePath) {
+      return false
+    }
+    const targetCwd = normalizeAiVaultResumePathForPlatform(workspacePath, args.platform)
+    const sessionPath = normalizeAiVaultResumePathForPlatform(args.sessionCwd, args.platform)
+    if (
+      !createNormalizedPathInsideOrEqualMatcher(targetCwd)(
+        normalizeRuntimePathForComparison(sessionPath)
+      )
+    ) {
+      return false
+    }
     return runtimePathExists(
       {
         settings: args.state.settings,
