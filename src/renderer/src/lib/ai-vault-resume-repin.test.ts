@@ -2,10 +2,15 @@ import { describe, expect, it, vi } from 'vitest'
 import type { AppState } from '@/store/types'
 import {
   buildAiVaultResumeCopyCommandForWorktree,
+  buildAiVaultResumeStartupForWorktreeAsync,
   buildAiVaultResumeStartupForWorktree
 } from './ai-vault-resume-command'
+import { runtimePathExists } from '@/runtime/runtime-file-metadata-client'
 
 vi.mock('@/lib/new-workspace', () => ({ CLIENT_PLATFORM: 'win32' }))
+vi.mock('@/runtime/runtime-file-metadata-client', () => ({
+  runtimePathExists: vi.fn()
+}))
 
 function makeState(args: {
   worktreePath: string
@@ -222,5 +227,44 @@ describe('ai vault resume cwd repinning', () => {
     expect(
       buildAiVaultResumeStartupForWorktree({ state, worktreeId: 'missing', session })
     ).toMatchObject({ command: "claude '--resume' 'session one'" })
+  })
+
+  it('treats an outside runtime-owned session cwd as unavailable instead of throwing', async () => {
+    const state = makeState({ worktreePath: '/home/alice/replacement' })
+    state.settings = {
+      ...state.settings,
+      activeRuntimeEnvironmentId: 'runtime-1'
+    } as never
+    state.worktreesByRepo = {
+      'repo-1': [
+        {
+          id: 'repo-1::worktree-1',
+          repoId: 'repo-1',
+          path: '/home/alice/replacement',
+          runtimeOwnerEnvironmentId: 'runtime-1'
+        }
+      ]
+    } as never
+    const session = {
+      agent: 'claude' as const,
+      sessionId: 'session one',
+      cwd: '/home/alice/deleted',
+      codexHome: null,
+      executionHostId: 'runtime:runtime-1' as const,
+      executionHostPlatform: 'linux' as const,
+      resumeCommand: "cd '/home/alice/deleted' && claude '--resume' 'session one'"
+    }
+
+    await expect(
+      buildAiVaultResumeStartupForWorktreeAsync({
+        state,
+        worktreeId: 'repo-1::worktree-1',
+        session
+      })
+    ).resolves.toMatchObject({
+      command: "claude '--resume' 'session one'",
+      cwd: '/home/alice/replacement'
+    })
+    expect(runtimePathExists).not.toHaveBeenCalled()
   })
 })

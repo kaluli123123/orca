@@ -17,7 +17,6 @@ import {
 } from '../../../shared/tui-agent-launch-defaults'
 import type { AgentStartupShell } from '../../../shared/tui-agent-startup-shell'
 import type { AppState } from '@/store/types'
-import type { AiVaultSessionDragPayload } from '@/lib/ai-vault-session-drag'
 import { buildAgentResumeStartupPlan } from '@/lib/tui-agent-startup'
 import { LOCAL_EXECUTION_HOST_ID } from '../../../shared/execution-host'
 import { aiVaultResumeCwdExists, resolveAiVaultResumeCwd } from './ai-vault-resume-cwd'
@@ -85,10 +84,12 @@ export function buildAiVaultResumeCopyCommandForWorktree(args: AiVaultResumeWork
 export async function buildAiVaultResumeCopyCommandForWorktreeAsync(
   args: AiVaultResumeWorktreeArgs
 ): Promise<string> {
+  const platform = getAiVaultResumeWorktreePlatform(args)
   const sessionCwdExists = await aiVaultResumeCwdExists({
     state: args.state,
     worktreeId: args.worktreeId ?? args.state.activeWorktreeId ?? '',
-    sessionCwd: args.session.cwd
+    sessionCwd: args.session.cwd,
+    platform
   })
   const clearEnvNames =
     args.session.agent === 'codex' && args.session.codexHome === null
@@ -106,49 +107,25 @@ export function buildAiVaultResumeStartupForWorktree(
 export async function buildAiVaultResumeStartupForWorktreeAsync(
   args: AiVaultResumeWorktreeArgs
 ): Promise<AiVaultResumeStartup> {
+  const platform = getAiVaultResumeWorktreePlatform(args)
   const sessionCwdExists = await aiVaultResumeCwdExists({
     state: args.state,
     worktreeId: args.worktreeId ?? args.state.activeWorktreeId ?? '',
-    sessionCwd: args.session.cwd
+    sessionCwd: args.session.cwd,
+    platform
   })
   return buildAiVaultResumeForWorktree(args, false, undefined, sessionCwdExists)
 }
 
-/**
- * Rebuilds a drag-drop resume startup under the account home the host
- * substituted, or null when the payload cannot be repinned.
- *
- * Why: the drag payload's prebuilt command pins the session's recorded home,
- * which the substitution just proved belongs to the wrong account. A null
- * sessionCwd is a real value (session has no cwd; rebuild without a cd
- * prefix); only an ABSENT sessionCwd — a payload from an older serializer —
- * declines, because the original cwd is unrecoverable.
- */
-export async function buildAiVaultDropRepinStartup(args: {
-  state: AiVaultResumeWorktreeArgs['state']
-  payload: Pick<
-    AiVaultSessionDragPayload,
-    'agent' | 'sessionId' | 'sessionCwd' | 'sessionExecutionHostId' | 'sessionFilePath'
-  >
-  substituteCodexHome: string
-  worktreeId: string
-}): Promise<AiVaultResumeStartup | null> {
-  if (args.payload.sessionCwd === undefined || !args.payload.sessionFilePath) {
-    return null
+function getAiVaultResumeWorktreePlatform(args: AiVaultResumeWorktreeArgs): NodeJS.Platform {
+  if (
+    args.session.executionHostId &&
+    args.session.executionHostId !== LOCAL_EXECUTION_HOST_ID &&
+    args.session.executionHostPlatform
+  ) {
+    return args.session.executionHostPlatform
   }
-  return buildAiVaultResumeStartupForWorktreeAsync({
-    state: args.state,
-    worktreeId: args.worktreeId,
-    session: {
-      agent: args.payload.agent,
-      sessionId: args.payload.sessionId,
-      cwd: args.payload.sessionCwd,
-      codexHome: args.substituteCodexHome,
-      executionHostId: args.payload.sessionExecutionHostId,
-      filePath: args.payload.sessionFilePath
-    },
-    commandOverride: args.state.settings?.agentCmdOverrides?.[args.payload.agent]
-  })
+  return getAiVaultResumePlatform(args.state, args.worktreeId)
 }
 
 function buildAiVaultResumeForWorktree(
@@ -160,12 +137,7 @@ function buildAiVaultResumeForWorktree(
   sessionCwdExists?: boolean
 ): AiVaultResumeStartup {
   const providerSession = getAiVaultAgentProviderSession(args.session)
-  const platform =
-    args.session.executionHostId &&
-    args.session.executionHostId !== LOCAL_EXECUTION_HOST_ID &&
-    args.session.executionHostPlatform
-      ? args.session.executionHostPlatform
-      : getAiVaultResumePlatform(args.state, args.worktreeId)
+  const platform = getAiVaultResumeWorktreePlatform(args)
   const isLocalSession =
     !args.session.executionHostId || args.session.executionHostId === LOCAL_EXECUTION_HOST_ID
   // Why: local shell settings do not describe a remote Windows host, whose

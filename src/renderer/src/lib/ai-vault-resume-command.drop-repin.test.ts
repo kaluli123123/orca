@@ -1,6 +1,10 @@
 import { describe, expect, it, vi } from 'vitest'
 import type { AppState } from '@/store/types'
-import { buildAiVaultDropRepinStartup } from './ai-vault-resume-command'
+import {
+  buildAiVaultDropLaunchStartup,
+  buildAiVaultDropRepinStartup,
+  buildAiVaultDropResumeStartup
+} from './ai-vault-drop-resume-startup'
 
 vi.mock('@/lib/new-workspace', () => ({
   CLIENT_PLATFORM: 'darwin'
@@ -107,6 +111,44 @@ describe('buildAiVaultDropRepinStartup', () => {
       state: makeState(),
       payload: payload({ sessionCwd: '/Users/ada/repo/packages/deleted' }),
       substituteCodexHome: SELECTED_HOME,
+      worktreeId: 'repo-1::worktree-1'
+    })
+
+    expect(startup).toMatchObject({ cwd: '/Users/ada/repo' })
+    expect(startup?.command).not.toContain('/packages/deleted')
+  })
+
+  it('rebuilds a current drag payload with the async cwd check', async () => {
+    const pathExists = vi.mocked(window.api.shell.pathExists)
+    pathExists.mockResolvedValueOnce(false)
+
+    const startup = await buildAiVaultDropResumeStartup({
+      state: makeState(),
+      payload: {
+        ...payload({ sessionCwd: '/Users/ada/repo/packages/deleted' }),
+        codexHome: SELECTED_HOME
+      },
+      codexHome: SELECTED_HOME,
+      worktreeId: 'repo-1::worktree-1'
+    })
+
+    expect(startup).toMatchObject({ cwd: '/Users/ada/repo' })
+    expect(startup?.command).not.toContain('/packages/deleted')
+  })
+
+  it('launches current drag payloads through the async startup resolver', async () => {
+    const pathExists = vi.mocked(window.api.shell.pathExists)
+    pathExists.mockResolvedValueOnce(false)
+
+    const startup = await buildAiVaultDropLaunchStartup({
+      state: makeState(),
+      payload: {
+        ...payload({ sessionCwd: '/Users/ada/repo/packages/deleted' }),
+        title: 'Session',
+        command: "cd '/Users/ada/repo/packages/deleted' && codex resume session-1",
+        codexHome: SELECTED_HOME
+      },
+      useRealCodexHome: false,
       worktreeId: 'repo-1::worktree-1'
     })
 
