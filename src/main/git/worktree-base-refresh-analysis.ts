@@ -4,12 +4,12 @@ import type {
   LocalBaseRefRefreshResult,
   LocalBaseRefUpdateSuggestion
 } from '../../shared/worktree/base-ref-drift-types'
+import { parseWorktreeList } from '../../shared/git-worktree-porcelain-parser'
 import { gitExecFileAsync, translateWslOutputPaths } from './runner'
 import {
   probeWorktreeBaseRefPresence,
   resolveLocalWorktreeBaseRef
 } from './worktree-base-ref-probe'
-import { parseWorktreeList } from './worktree-list-parser'
 import type { AddWorktreeOptions, GitWorktreeExecOptions } from './worktree-operation-options'
 import { gitExecOptions } from './worktree-operation-options'
 
