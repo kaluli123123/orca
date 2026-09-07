@@ -10,7 +10,7 @@ export type NativeChatQuestionCardProps = {
   isSubmitting?: boolean
   /** Deliver the chosen answer (per-question option indices + free text). */
   onAnswer: (selections: AskAnswerSelection[]) => void
-  allowOther?: boolean
+  allowOther?: boolean | readonly boolean[]
   /** Dismiss the prompt (sends Escape to the agent). */
   onCancel: () => void
   /** Exposes the free-text row so pane-level Paste can target it while the
@@ -66,6 +66,9 @@ export function NativeChatQuestionCard({
   if (!q) {
     return null
   }
+  const questionAllowsOther = Array.isArray(allowOther)
+    ? (allowOther[activeIndex] ?? false)
+    : allowOther
 
   const setOther = (qi: number, value: string): void => {
     setState((previous) => {
@@ -119,19 +122,16 @@ export function NativeChatQuestionCard({
   // trailing Send/Next button. (Auto-submitting on the first click dismissed the
   // card before the user saw any feedback, which read as "nothing happened".)
   const pickOption = (optionIndex: number): void => {
-    setState((previous) => {
-      const base = previous.promptIdentity === promptIdentity ? previous : activeState
-      const next = base.selections.map((s) => [...s])
-      const cur = next[activeIndex] ?? []
-      if (q.multiSelect) {
-        next[activeIndex] = cur.includes(optionIndex)
-          ? cur.filter((pickedIndex) => pickedIndex !== optionIndex)
-          : [...cur, optionIndex].sort((a, b) => a - b)
-      } else {
-        next[activeIndex] = cur.includes(optionIndex) ? [] : [optionIndex]
-      }
-      return { ...base, selections: next }
-    })
+    const next = activeState.selections.map((selection) => [...selection])
+    const current = next[activeIndex] ?? []
+    if (q.multiSelect) {
+      next[activeIndex] = current.includes(optionIndex)
+        ? current.filter((pickedIndex) => pickedIndex !== optionIndex)
+        : [...current, optionIndex].sort((a, b) => a - b)
+    } else {
+      next[activeIndex] = current.includes(optionIndex) ? [] : [optionIndex]
+    }
+    setState({ ...activeState, selections: next })
   }
 
   // Trailing action (also fired by Enter). On any non-final question this just
@@ -223,7 +223,7 @@ export function NativeChatQuestionCard({
               />
             ))}
             <div className="flex items-center gap-3 px-3.5 py-2.5">
-              {allowOther ? (
+              {questionAllowsOther ? (
                 <>
                   <span className="flex size-6 shrink-0 items-center justify-center rounded-md bg-muted text-muted-foreground">
                     <Pencil className="size-3.5" />
