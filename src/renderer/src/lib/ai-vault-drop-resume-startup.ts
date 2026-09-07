@@ -54,14 +54,12 @@ export async function buildAiVaultDropLaunchStartup(args: {
       worktreeId: args.worktreeId
     })
   }
-  return (
-    (await buildAiVaultDropResumeStartup({
-      state: args.state,
-      payload: args.payload,
-      codexHome: args.payload.codexHome,
-      worktreeId: args.worktreeId
-    })) ?? args.payload
-  )
+  return buildAiVaultDropResumeStartup({
+    state: args.state,
+    payload: args.payload,
+    codexHome: args.payload.codexHome,
+    worktreeId: args.worktreeId
+  })
 }
 
 /** Rebuilds a drag-drop resume startup with a freshly validated cwd. */

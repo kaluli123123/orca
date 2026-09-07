@@ -107,7 +107,7 @@ export async function aiVaultResumeCwdExists(args: {
         worktreePath: workspacePath,
         connectionId
       },
-      args.sessionCwd
+      sessionPath
     )
   }
   if (connectionId) {

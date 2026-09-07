@@ -155,4 +155,19 @@ describe('buildAiVaultDropRepinStartup', () => {
     expect(startup).toMatchObject({ cwd: '/Users/ada/repo' })
     expect(startup?.command).not.toContain('/packages/deleted')
   })
+
+  it('does not launch an older payload whose cwd cannot be validated', async () => {
+    const startup = await buildAiVaultDropLaunchStartup({
+      state: makeState(),
+      payload: {
+        ...payload({ sessionCwd: '/Users/ada/repo/packages/deleted' }),
+        title: 'Session',
+        command: "cd '/Users/ada/repo/packages/deleted' && codex resume session-1"
+      },
+      useRealCodexHome: false,
+      worktreeId: 'repo-1::worktree-1'
+    })
+
+    expect(startup).toBeNull()
+  })
 })
