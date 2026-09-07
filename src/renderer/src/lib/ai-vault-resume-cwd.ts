@@ -104,7 +104,7 @@ export async function aiVaultResumeCwdExists(args: {
       {
         settings: args.state.settings,
         worktreeId: args.worktreeId,
-        worktreePath: workspacePath,
+        worktreePath: targetCwd,
         connectionId
       },
       sessionPath

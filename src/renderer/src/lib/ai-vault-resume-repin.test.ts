@@ -224,9 +224,13 @@ describe('ai vault resume cwd repinning', () => {
       executionHostPlatform: 'linux' as const,
       resumeCommand: "cd '/home/alice/deleted' && claude '--resume' 'session one'"
     }
-    expect(
-      buildAiVaultResumeStartupForWorktree({ state, worktreeId: 'missing', session })
-    ).toMatchObject({ command: "claude '--resume' 'session one'" })
+    const startup = buildAiVaultResumeStartupForWorktree({
+      state,
+      worktreeId: 'missing',
+      session
+    })
+    expect(startup).toMatchObject({ command: "claude '--resume' 'session one'" })
+    expect(startup.cwd).toBeUndefined()
   })
 
   it('treats an outside runtime-owned session cwd as unavailable instead of throwing', async () => {
@@ -302,7 +306,7 @@ describe('ai vault resume cwd repinning', () => {
       })
     ).resolves.toMatchObject({ cwd: '/home/alice/repo/packages/app' })
     expect(runtimePathExists).toHaveBeenCalledWith(
-      expect.any(Object),
+      expect.objectContaining({ worktreePath: '/home/alice/repo' }),
       '/home/alice/repo/packages/app'
     )
   })
