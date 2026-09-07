@@ -101,22 +101,23 @@ describe('parseRelayEndpointIncumbentProbe', () => {
 })
 
 describe('probeRelayEndpointIncumbent', () => {
-  it('uses a dedicated timeout for the remote incumbent probe', async () => {
+  it('keeps the whole probe alive long enough to return a bounded lsof result', async () => {
     execCommand.mockResolvedValueOnce(
       probeOutput(['PRESENT=yes', 'LISTEN=refused', 'HOLDERS_SOURCE=unavailable'])
     )
 
     await probeRelayEndpointIncumbent({} as SshConnection, POSIX_HOST, '/usr/bin/node', SOCK)
 
-    expect(execCommand).toHaveBeenCalledWith(
-      expect.anything(),
-      expect.any(String),
-      expect.objectContaining({ timeoutMs: 5_000 })
-    )
+    expect(execCommand).toHaveBeenCalledWith(expect.anything(), expect.any(String), {
+      wrapCommand: true,
+      signal: undefined
+    })
   })
 
   it('keeps a confirmed timeout or rejection unverifiable and unenumerable', async () => {
-    execCommand.mockRejectedValueOnce(new Error('lsof timed out after 5s'))
+    execCommand.mockRejectedValueOnce(
+      Object.assign(new Error('lsof timed out after 5s'), { sshChannelCloseConfirmed: true })
+    )
     const incumbent = await probeRelayEndpointIncumbent(
       {} as SshConnection,
       POSIX_HOST,
@@ -155,7 +156,7 @@ describe('probeRelayEndpointIncumbent', () => {
 describe('relayEndpointIncumbentProbeCommand', () => {
   it('ANDs the lsof selectors so it cannot match unrelated unix-socket holders', () => {
     expect(relayEndpointIncumbentProbeCommand('/usr/bin/node', SOCK)).toContain(
-      'lsof -t -a -U "$sock"'
+      '["-t","-a","-U",process.argv[1]]'
     )
   })
 
@@ -163,6 +164,16 @@ describe('relayEndpointIncumbentProbeCommand', () => {
     const command = relayEndpointIncumbentProbeCommand('/usr/bin/node', SOCK)
     expect(command).not.toMatch(/\brm\b/)
     expect(command).not.toMatch(/\bkill\b/)
+  })
+
+  it('bounds only lsof and keeps the connect-probe output available', () => {
+    const command = relayEndpointIncumbentProbeCommand('/usr/bin/node', SOCK)
+    expect(command).toContain('spawnSync("lsof"')
+    expect(command).toContain('timeout:5000')
+    expect(command).toContain("printf 'HOLDERS_SOURCE=unavailable\\n'")
+    expect(command.indexOf("printf 'LISTEN=%s\\n'")).toBeLessThan(
+      command.indexOf('spawnSync("lsof"')
+    )
   })
 })
 
