@@ -156,15 +156,12 @@ describe('buildAiVaultDropRepinStartup', () => {
     expect(startup?.command).not.toContain('/packages/deleted')
   })
 
-  it('rejects a legacy launch payload instead of using its unvalidated cwd', async () => {
-    const pathExists = vi.mocked(window.api.shell.pathExists)
-    pathExists.mockResolvedValueOnce(false)
-
+  it('does not launch an older payload whose cwd cannot be validated', async () => {
     const startup = await buildAiVaultDropLaunchStartup({
       state: makeState(),
       payload: {
         ...payload({ sessionCwd: '/Users/ada/repo/packages/deleted' }),
-        title: 'Legacy session',
+        title: 'Session',
         command: "cd '/Users/ada/repo/packages/deleted' && codex resume session-1"
       },
       useRealCodexHome: false,
