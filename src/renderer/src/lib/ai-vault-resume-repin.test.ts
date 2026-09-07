@@ -267,4 +267,44 @@ describe('ai vault resume cwd repinning', () => {
     })
     expect(runtimePathExists).not.toHaveBeenCalled()
   })
+
+  it('probes a runtime-owned WSL session with its normalized Linux path', async () => {
+    const state = makeState({
+      worktreePath: '\\\\wsl.localhost\\Ubuntu\\home\\alice\\repo'
+    })
+    state.settings = {
+      ...state.settings,
+      activeRuntimeEnvironmentId: 'runtime-1'
+    } as never
+    state.worktreesByRepo = {
+      'repo-1': [
+        {
+          id: 'repo-1::worktree-1',
+          repoId: 'repo-1',
+          path: '\\\\wsl.localhost\\Ubuntu\\home\\alice\\repo',
+          runtimeOwnerEnvironmentId: 'runtime-1'
+        }
+      ]
+    } as never
+    vi.mocked(runtimePathExists).mockResolvedValueOnce(true)
+
+    const startup = await buildAiVaultResumeStartupForWorktreeAsync({
+      state,
+      worktreeId: 'repo-1::worktree-1',
+      session: {
+        agent: 'claude',
+        sessionId: 'session one',
+        cwd: '\\\\wsl.localhost\\Ubuntu\\home\\alice\\repo\\packages\\app',
+        codexHome: null,
+        executionHostId: 'runtime:runtime-1',
+        executionHostPlatform: 'linux'
+      }
+    })
+
+    expect(runtimePathExists).toHaveBeenCalledWith(
+      expect.objectContaining({ worktreeId: 'repo-1::worktree-1' }),
+      '/home/alice/repo/packages/app'
+    )
+    expect(startup).toMatchObject({ cwd: '/home/alice/repo/packages/app' })
+  })
 })
