@@ -161,7 +161,7 @@ describe('orchestration.send Dispatch authority', () => {
   it('documents known trust-granularity limitation: an internal subagent sharing the pane can settle the Dispatch and lock out the owning worker', async () => {
     setup()
     const task = db.createTask({ spec: 'owning worker assignment' })
-    const dispatch = db.createDispatchContext(task.id, 'term_worker', 'tab_worker:leaf_worker')
+    const dispatch = createRootDispatch(db, task.id, 'term_worker', 'tab_worker:leaf_worker')
     const identity = {
       paneKey: 'tab_worker:leaf_worker',
       processIncarnation: 'runtime_test:term_worker:1'
