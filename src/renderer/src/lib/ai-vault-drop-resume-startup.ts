@@ -8,6 +8,11 @@ type AiVaultDropResumeState = Parameters<
   typeof buildAiVaultResumeStartupForWorktreeAsync
 >[0]['state']
 
+/** Returns only the cwd validated by the asynchronous drop startup resolver. */
+export function getAiVaultDropLaunchCwd(startup: AiVaultResumeStartup): string | undefined {
+  return startup.cwd
+}
+
 /** Rebuilds a drag-drop resume startup under the account home the host substituted. */
 export async function buildAiVaultDropRepinStartup(args: {
   state: AiVaultDropResumeState

@@ -13,7 +13,10 @@ import {
   readAiVaultSessionDragData
 } from '@/lib/ai-vault-session-drag'
 import { getAiVaultAgentProviderSession } from '@/lib/ai-vault-resume-command'
-import { buildAiVaultDropLaunchStartup } from '@/lib/ai-vault-drop-resume-startup'
+import {
+  buildAiVaultDropLaunchStartup,
+  getAiVaultDropLaunchCwd
+} from '@/lib/ai-vault-drop-resume-startup'
 import { launchAiVaultSessionInNewTab } from '@/lib/launch-ai-vault-session'
 import { aiVaultSessionNeedsResumePreparation } from '@/lib/ai-vault-session-resume-preparation'
 import { useAppStore } from '@/store'
@@ -180,7 +183,9 @@ export default function AiVaultSessionDropLayer({
               executionHostId: payload.sessionExecutionHostId,
               codexHome: payload.codexHome
             })
-          : Promise.resolve<AiVaultPrepareSessionResumeResult>({ useRealCodexHome: false })
+          : Promise.resolve<AiVaultPrepareSessionResumeResult>({
+              useRealCodexHome: false
+            })
       void preparation
         .then(async (result) => {
           const startup = await buildAiVaultDropLaunchStartup({
@@ -200,8 +205,7 @@ export default function AiVaultSessionDropLayer({
                 : 'Orca could not prepare this legacy Codex session. Retry resume.'
             )
           }
-          const startupCwd =
-            'cwd' in startup && typeof startup.cwd === 'string' ? startup.cwd : payload.sessionCwd
+          const startupCwd = getAiVaultDropLaunchCwd(startup)
           const providerSession = getAiVaultAgentProviderSession({
             agent: payload.agent,
             sessionId: payload.sessionId,
@@ -275,7 +279,12 @@ export default function AiVaultSessionDropLayer({
       }
       // Electron sometimes accepts dragover on the overlay but skips React's
       // delegated drop handler; capture keeps the visible target and action in sync.
-      if (handleSessionDrop(event.dataTransfer, { x: event.clientX, y: event.clientY })) {
+      if (
+        handleSessionDrop(event.dataTransfer, {
+          x: event.clientX,
+          y: event.clientY
+        })
+      ) {
         event.preventDefault()
         event.stopPropagation()
       }

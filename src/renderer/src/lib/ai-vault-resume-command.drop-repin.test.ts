@@ -3,7 +3,8 @@ import type { AppState } from '@/store/types'
 import {
   buildAiVaultDropLaunchStartup,
   buildAiVaultDropRepinStartup,
-  buildAiVaultDropResumeStartup
+  buildAiVaultDropResumeStartup,
+  getAiVaultDropLaunchCwd
 } from './ai-vault-drop-resume-startup'
 
 vi.mock('@/lib/new-workspace', () => ({
@@ -64,6 +65,10 @@ function payload(overrides: {
 }
 
 describe('buildAiVaultDropRepinStartup', () => {
+  it('does not launch with an unvalidated payload cwd when startup omits cwd', () => {
+    expect(getAiVaultDropLaunchCwd({ command: 'codex resume session-1' })).toBeUndefined()
+  })
+
   it('repins a payload with a cwd to the substituted home', async () => {
     const startup = await buildAiVaultDropRepinStartup({
       state: makeState(),
