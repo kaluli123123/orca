@@ -13,10 +13,7 @@ import {
   readAiVaultSessionDragData
 } from '@/lib/ai-vault-session-drag'
 import { getAiVaultAgentProviderSession } from '@/lib/ai-vault-resume-command'
-import {
-  buildAiVaultDropLaunchStartup,
-  getAiVaultDropLaunchCwd
-} from '@/lib/ai-vault-drop-resume-startup'
+import { buildAiVaultDropLaunchStartup } from '@/lib/ai-vault-drop-resume-startup'
 import { launchAiVaultSessionInNewTab } from '@/lib/launch-ai-vault-session'
 import { aiVaultSessionNeedsResumePreparation } from '@/lib/ai-vault-session-resume-preparation'
 import { useAppStore } from '@/store'
@@ -205,7 +202,7 @@ export default function AiVaultSessionDropLayer({
                 : 'Orca could not prepare this legacy Codex session. Retry resume.'
             )
           }
-          const startupCwd = getAiVaultDropLaunchCwd(startup)
+          const startupCwd = startup.cwd
           const providerSession = getAiVaultAgentProviderSession({
             agent: payload.agent,
             sessionId: payload.sessionId,
