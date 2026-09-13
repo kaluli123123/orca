@@ -41,12 +41,15 @@ async function probe(script: string, listening = false) {
     let pidAlive: boolean | null = null
     try {
       const pid = Number(readFileSync(pidFile, 'utf8'))
-      try {
-        process.kill(pid, 0)
-        pidAlive = true
-      } catch (error) {
-        pidAlive = !(error instanceof Error && 'code' in error && error.code === 'ESRCH')
-      }
+      const state = await runProcess({
+        program: 'ps',
+        args: ['-o', 'state=', '-p', String(pid)],
+        timeoutMs: 2000
+      })
+      pidAlive = !(
+        (state.code === 1 && !state.stdout.trim()) ||
+        (state.code === 0 && state.stdout.trim().startsWith('Z'))
+      )
     } catch {}
     return { result, verdict, elapsedMs: performance.now() - start, pidAlive }
   } finally {
@@ -75,7 +78,7 @@ describe.skipIf(process.platform === 'win32')('real generated incumbent probe', 
     expect(p.pidAlive).toBe(false)
     expect(p.elapsedMs).toBeLessThan(10000)
   })
-  it('reaps a hung lsof helper as well as its parent', async () => {
+  it('stops a hung lsof helper as well as its parent', async () => {
     const p = await probe('sleep 60 &\necho $! > "$FIXTURE_PID"\nwait\n', true)
     expect(p.result.timedOut).toBe(false)
     expect(p.verdict).toMatchObject({ verdict: 'live', holdersEnumerable: false })

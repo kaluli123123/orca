@@ -194,7 +194,7 @@ describe('relayEndpointIncumbentProbeCommand', () => {
     expect(RELAY_LSOF_PROBE_JS).toContain("spawn('lsof'")
     expect(command).toContain('}, 5000)')
     expect(command).toContain("printf 'HOLDERS_SOURCE=unavailable\\n'")
-    expect(command.indexOf("printf 'LISTEN=%s\\n'")).toBeLessThan(command.indexOf('var child ='))
+    expect(command.indexOf("printf 'LISTEN=%s\\n'")).toBeLessThan(command.indexOf('child = spawn('))
   })
 })
 
