@@ -58,6 +58,7 @@ import { deployAndLaunchRelay } from './ssh-relay-deploy'
 import { execCommand, waitForSentinel } from './ssh-relay-deploy-helpers'
 import { RelayCredentialMismatchError } from './ssh-relay-credential-mismatch-error'
 import {
+  RelayProbeCleanupUnconfirmedError,
   isRelayEndpointHeldError,
   isRelayEndpointUnresponsiveError
 } from './ssh-relay-endpoint-incumbent'
@@ -87,14 +88,14 @@ const LIVE_UNENUMERABLE_PROBE = [
   'ORCA-INCUMBENT-END'
 ].join('\n')
 
-function queueAliveSocketThenProbe(): void {
+function queueAliveSocketThenProbe(output = LIVE_UNENUMERABLE_PROBE): void {
   vi.mocked(execCommand)
     .mockResolvedValueOnce('__ORCA_REMOTE_PLATFORM__ Linux x86_64')
     .mockResolvedValueOnce('/home/user')
     .mockResolvedValueOnce('ORCA-NATIVE-DEPS-OK')
     .mockResolvedValueOnce('') // launch namespace marker
     .mockResolvedValueOnce('ALIVE')
-    .mockResolvedValueOnce(LIVE_UNENUMERABLE_PROBE)
+    .mockResolvedValueOnce(output)
 }
 
 function launchedDaemon(conn: SshConnection): boolean {
@@ -130,6 +131,21 @@ describe('deployAndLaunchRelay honours the incumbent verdict', () => {
     queueAliveSocketThenProbe()
 
     await expect(deployAndLaunchRelay(conn)).rejects.toSatisfy(isRelayEndpointHeldError)
+    expect(launchedDaemon(conn)).toBe(false)
+  })
+
+  it('does not launch while the incumbent probe cleanup is unconfirmed', async () => {
+    const conn = makeMockConnection()
+    vi.mocked(waitForSentinel).mockRejectedValueOnce(new Error('Relay handshake timed out'))
+    queueAliveSocketThenProbe(
+      LIVE_UNENUMERABLE_PROBE.replace(
+        'HOLDERS_SOURCE=unavailable',
+        'HOLDERS_SOURCE=unavailable\nPROBE_CLEANUP=unconfirmed'
+      )
+    )
+    await expect(deployAndLaunchRelay(conn)).rejects.toBeInstanceOf(
+      RelayProbeCleanupUnconfirmedError
+    )
     expect(launchedDaemon(conn)).toBe(false)
   })
 

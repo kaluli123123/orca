@@ -10,7 +10,9 @@ vi.mock('./ssh-relay-deploy-helpers', () => ({
 }))
 import {
   relayEndpointIncumbentProbeCommand,
-  parseRelayEndpointIncumbentProbe
+  parseRelayEndpointIncumbentProbe,
+  mayLaunchOverRelayEndpoint,
+  isReapableRelayHusk
 } from './ssh-relay-endpoint-incumbent'
 
 async function probe(script: string, listening = false) {
@@ -51,6 +53,12 @@ async function probe(script: string, listening = false) {
     if (listening) {
       await new Promise<void>((resolve) => server.close(() => resolve()))
     }
+    try {
+      const pid = Number(readFileSync(pidFile, 'utf8'))
+      if (Number.isInteger(pid) && pid > 0) {
+        process.kill(pid, 'SIGKILL')
+      }
+    } catch {}
     rmSync(dir, { recursive: true, force: true })
   }
 }
@@ -67,10 +75,42 @@ describe.skipIf(process.platform === 'win32')('real generated incumbent probe', 
     expect(p.pidAlive).toBe(false)
     expect(p.elapsedMs).toBeLessThan(10000)
   })
+  it('reaps a hung lsof helper as well as its parent', async () => {
+    const p = await probe('sleep 60 &\necho $! > "$FIXTURE_PID"\nwait\n', true)
+    expect(p.result.timedOut).toBe(false)
+    expect(p.verdict).toMatchObject({ verdict: 'live', holdersEnumerable: false })
+    expect(p.pidAlive).toBe(false)
+    expect(p.elapsedMs).toBeLessThan(10000)
+  })
   it('does not mistake diagnostic enumeration failure for proven absence', async () => {
     const p = await probe('echo "lsof: access denied" >&2\nexit 1\n')
     expect(p.verdict).toMatchObject({ verdict: 'unverifiable', holdersEnumerable: false })
   })
+  it.each(['echo "lsof: partial results" >&2\nexit 0\n', 'exit 2\n', 'exec sleep 60\n'])(
+    'preserves positive holders from incomplete enumeration: %s',
+    async (ending) => {
+      const p = await probe(`echo ${process.pid}\n${ending}`)
+      expect(p.verdict).toMatchObject({
+        verdict: 'live',
+        evidence: 'holder-process',
+        holdersEnumerable: false
+      })
+      expect(p.verdict.holders.map((holder) => holder.pid)).toContain(process.pid)
+      expect(mayLaunchOverRelayEndpoint(p.verdict)).toBe(false)
+      expect(isReapableRelayHusk(p.verdict)).toBe(false)
+    }
+  )
+  it.each(['printf 123', 'echo malformed'])(
+    'rejects incomplete or malformed PID records: %s',
+    async (script) => {
+      const p = await probe(script)
+      expect(p.verdict).toMatchObject({
+        verdict: 'unverifiable',
+        holdersEnumerable: false,
+        holders: []
+      })
+    }
+  )
   it('preserves a completed empty enumeration', async () => {
     const p = await probe('exit 1\n')
     expect(p.verdict).toMatchObject({ verdict: 'exited', holdersEnumerable: true })

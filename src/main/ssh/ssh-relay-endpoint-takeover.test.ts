@@ -54,7 +54,7 @@ describe('incumbent alive and refusing', () => {
     await expect(resolve(REFUSED)).rejects.toSatisfy(isRelayEndpointHeldError)
     // The whole point of #8585: the incumbent's socket must survive so it is not orphaned.
     expect(issuedCommands().some((command) => /\brm -f\b/.test(command))).toBe(false)
-    expect(issuedCommands().some((command) => /\bkill\b/.test(command))).toBe(false)
+    expect(issuedCommands().some((command) => /\bkill\s/.test(command))).toBe(false)
   })
 
   it('names the incumbent pid and the Reset Relay escape hatch in the error', async () => {
@@ -70,7 +70,7 @@ describe('incumbent alive and refusing', () => {
       probe(['PRESENT=yes', 'LISTEN=unknown', 'HOLDERS_SOURCE=unavailable'])
     )
     await expect(resolve(REFUSED)).rejects.toSatisfy(isRelayEndpointHeldError)
-    expect(issuedCommands().some((command) => /\bkill\b/.test(command))).toBe(false)
+    expect(issuedCommands().some((command) => /\bkill\s/.test(command))).toBe(false)
   })
 
   it('treats a version mismatch as live even where holders cannot be enumerated', async () => {
@@ -123,7 +123,7 @@ describe('incumbent alive but silent', () => {
     await expect(outcome).rejects.toSatisfy(isRelayEndpointUnresponsiveError)
     await expect(outcome).rejects.not.toSatisfy(isRelayEndpointHeldError)
     expect(issuedCommands().some((command) => /\brm -f\b/.test(command))).toBe(false)
-    expect(issuedCommands().some((command) => /\bkill\b/.test(command))).toBe(false)
+    expect(issuedCommands().some((command) => /\bkill\s/.test(command))).toBe(false)
   })
 
   it('stays retryable when a silent holder is enumerated with live work', async () => {
@@ -168,7 +168,7 @@ describe('incumbent unverifiable', () => {
 
     await expect(resolve()).rejects.toBe(unconfirmed)
     expect(issuedCommands()).toHaveLength(1)
-    expect(issuedCommands().some((command) => /--detached|\brm -f\b|\bkill\b/.test(command))).toBe(
+    expect(issuedCommands().some((command) => /--detached|\brm -f\b|\bkill\s/.test(command))).toBe(
       false
     )
   })

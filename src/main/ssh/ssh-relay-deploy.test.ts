@@ -201,7 +201,7 @@ describe('deployAndLaunchRelay', () => {
     const commands = vi.mocked(conn.exec).mock.calls.map(([command]) => command)
     expect(commands).toHaveLength(1)
     expect(
-      commands.filter((command) => /--detached|\brm -f\b|\bkill\b/.test(command))
+      commands.filter((command) => /--detached|\brm -f\b|\bkill\s/.test(command))
     ).toHaveLength(0)
   })
 

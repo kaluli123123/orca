@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
+import { RELAY_LSOF_PROBE_JS } from './ssh-relay-lsof-probe'
 
 const execCommand = vi.fn()
 vi.mock('./ssh-relay-deploy-helpers', () => ({
@@ -180,25 +181,20 @@ describe('probeRelayEndpointIncumbent', () => {
 
 describe('relayEndpointIncumbentProbeCommand', () => {
   it('ANDs the lsof selectors so it cannot match unrelated unix-socket holders', () => {
-    expect(relayEndpointIncumbentProbeCommand('/usr/bin/node', SOCK)).toContain(
-      '["-t","-a","-U",process.argv[1]]'
-    )
+    expect(RELAY_LSOF_PROBE_JS).toContain("['-t', '-a', '-U', process.argv[1]]")
   })
 
-  it('never mutates the host: no unlink, no signal', () => {
+  it('never unlinks the relay endpoint', () => {
     const command = relayEndpointIncumbentProbeCommand('/usr/bin/node', SOCK)
     expect(command).not.toMatch(/\brm\b/)
-    expect(command).not.toMatch(/\bkill\b/)
   })
 
   it('bounds only lsof and keeps the connect-probe output available', () => {
     const command = relayEndpointIncumbentProbeCommand('/usr/bin/node', SOCK)
-    expect(command).toContain('spawnSync("lsof"')
-    expect(command).toContain('timeout:5000')
+    expect(RELAY_LSOF_PROBE_JS).toContain("spawn('lsof'")
+    expect(command).toContain('}, 5000)')
     expect(command).toContain("printf 'HOLDERS_SOURCE=unavailable\\n'")
-    expect(command.indexOf("printf 'LISTEN=%s\\n'")).toBeLessThan(
-      command.indexOf('spawnSync("lsof"')
-    )
+    expect(command.indexOf("printf 'LISTEN=%s\\n'")).toBeLessThan(command.indexOf('var child ='))
   })
 })
 
