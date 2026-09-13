@@ -20,6 +20,9 @@ import {
 import type { SshConnection } from './ssh-connection'
 import { getRemoteHostPlatform } from './ssh-remote-platform'
 
+// oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: The mocked execCommand never dereferences the connection; the Windows path returns before using it.
+const connection = {} as SshConnection
+
 const SOCK = '/home/u/.orca-remote/relay-0.1.0+aaaa/relay-deadbeef.sock'
 const POSIX_HOST = getRemoteHostPlatform('linux-x64')
 const WINDOWS_HOST = getRemoteHostPlatform('win32-x64')
@@ -133,7 +136,7 @@ describe('probeRelayEndpointIncumbent', () => {
       probeOutput(['PRESENT=yes', 'LISTEN=refused', 'HOLDERS_SOURCE=unavailable'])
     )
 
-    await probeRelayEndpointIncumbent({} as SshConnection, POSIX_HOST, '/usr/bin/node', SOCK)
+    await probeRelayEndpointIncumbent(connection, POSIX_HOST, '/usr/bin/node', SOCK)
 
     expect(execCommand).toHaveBeenCalledWith(expect.anything(), expect.any(String), {
       wrapCommand: true,
@@ -146,7 +149,7 @@ describe('probeRelayEndpointIncumbent', () => {
       Object.assign(new Error('lsof timed out after 5s'), { sshChannelCloseConfirmed: true })
     )
     const incumbent = await probeRelayEndpointIncumbent(
-      {} as SshConnection,
+      connection,
       POSIX_HOST,
       '/usr/bin/node',
       SOCK
@@ -163,18 +166,13 @@ describe('probeRelayEndpointIncumbent', () => {
     execCommand.mockRejectedValueOnce(unconfirmed)
 
     await expect(
-      probeRelayEndpointIncumbent({} as SshConnection, POSIX_HOST, '/usr/bin/node', SOCK)
+      probeRelayEndpointIncumbent(connection, POSIX_HOST, '/usr/bin/node', SOCK)
     ).rejects.toBe(unconfirmed)
   })
 
   it('does not shell out on Windows hosts, where the endpoint is a named pipe', async () => {
     execCommand.mockClear()
-    const incumbent = await probeRelayEndpointIncumbent(
-      {} as SshConnection,
-      WINDOWS_HOST,
-      'node.exe',
-      SOCK
-    )
+    const incumbent = await probeRelayEndpointIncumbent(connection, WINDOWS_HOST, 'node.exe', SOCK)
     expect(execCommand).not.toHaveBeenCalled()
     expect(incumbent.verdict).toBe('unverifiable')
   })

@@ -84,7 +84,7 @@ const LSOF_PROBE_JS = [
   'var r=require("child_process").spawnSync("lsof",',
   '["-t","-a","-U",process.argv[1]],',
   `{encoding:"utf8",timeout:${LSOF_PROBE_TIMEOUT_MS},killSignal:"SIGKILL"});`,
-  'var unavailable=!!r.error||r.signal!==null||(r.status!==0&&r.status!==1);',
+  'var unavailable=!!r.error||r.signal!==null||(r.status!==0&&r.status!==1)||!!(r.stderr||"").trim();',
   'process.stdout.write(unavailable?"unavailable\\n":"lsof\\n"+(r.stdout||""))'
 ].join('')
 
