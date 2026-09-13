@@ -4,7 +4,6 @@ import type {
   StructuredAgentSessionAcquireInput,
   StructuredAgentSessionAdapter
 } from '../native-chat/agent-session-wire/structured-agent-session-adapter'
-import type { StructuredAgentSessionEventSink } from '../native-chat/agent-session-wire/structured-agent-session-event-sink'
 import {
   answerClaudePrompt,
   cancelClaudeTurn,
@@ -41,8 +40,6 @@ export type {
   ClaudeStructuredSessionEvent
 } from './claude-structured-session-state'
 
-const DISPATCH_ACK_TIMEOUT_MS = 10_000
-
 function backgroundTaskState(session: ClaudeSession): AgentSessionBackgroundTaskState | null {
   const state = session.backgroundTasks.state
   return state ? { ...state, supportsTaskStop: true } : null
@@ -58,6 +55,9 @@ export class ClaudeStructuredSessionAdapter implements StructuredAgentSessionAda
 
   supportsLocation = supportsClaudeStructuredLocation
 
+  rewindSupport: NonNullable<StructuredAgentSessionAdapter['rewindSupport']> = () =>
+    this.deps.readTranscriptLeaf ? { supported: true } : { supported: false, reason: 'unsupported' }
+
   acquire = (input: StructuredAgentSessionAcquireInput): Promise<AgentSessionAcquisition> =>
     acquireClaudeSession({
       input,
@@ -67,7 +67,7 @@ export class ClaudeStructuredSessionAdapter implements StructuredAgentSessionAda
       exits: this.exits,
       callbacks: {
         deliver: (attempt, sessionId, event) => this.deliver(attempt, sessionId, event),
-        emit: (session, events, event) => this.emit(session, events, event),
+        emit: (session, _events, event) => this.emit(session, event),
         handleExit: (sessionId, attempt, error) => this.handleExit(sessionId, attempt, error),
         settleExit: (sessionId, exit) => this.settleUnexpectedExit(sessionId, exit)
       }
@@ -152,10 +152,11 @@ export class ClaudeStructuredSessionAdapter implements StructuredAgentSessionAda
         reason: exit.error.message,
         cause: 'unexpected-exit',
         fence: exit.session.fence,
-        acquisitionGeneration: exit.session.acquisitionGeneration
+        acquisitionGeneration: exit.session.acquisitionGeneration,
+        observedAt: this.deps.now?.() ?? Date.now()
       }
       try {
-        this.emit(exit.session, exit.session.events, ended)
+        this.emit(exit.session, ended)
       } finally {
         settleClaudeExitedSession(exit.session)
       }
@@ -187,11 +188,7 @@ export class ClaudeStructuredSessionAdapter implements StructuredAgentSessionAda
     })
   }
 
-  private emit(
-    session: ClaudeSession | null,
-    _events: StructuredAgentSessionEventSink | undefined,
-    event: ClaudeStructuredSessionEvent
-  ): void {
+  private emit(session: ClaudeSession | null, event: ClaudeStructuredSessionEvent): void {
     const backgroundTasksChanged =
       event.type === 'ended'
         ? (session?.backgroundTasks.clear() ?? false)
@@ -221,19 +218,10 @@ export class ClaudeStructuredSessionAdapter implements StructuredAgentSessionAda
   }
 
   dispatch: StructuredAgentSessionAdapter['dispatch'] = (input) =>
-    dispatchClaudeTurn(
-      this.session(input.sessionId),
-      input,
-      this.deps.dispatchAckTimeoutMs ?? DISPATCH_ACK_TIMEOUT_MS
-    )
+    dispatchClaudeTurn(this.session(input.sessionId), input)
 
   compact: NonNullable<StructuredAgentSessionAdapter['compact']> = (input) =>
-    compactClaudeSession(
-      this.session(input.sessionId),
-      this.compactions,
-      input,
-      this.deps.dispatchAckTimeoutMs ?? DISPATCH_ACK_TIMEOUT_MS
-    )
+    compactClaudeSession(this.session(input.sessionId), this.compactions, input)
 
   cancelTurn: StructuredAgentSessionAdapter['cancelTurn'] = (input) => {
     const session = this.session(input.sessionId)
