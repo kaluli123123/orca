@@ -112,7 +112,7 @@ function cleanup() {
 ['SIGTERM', 'SIGHUP', 'SIGINT'].forEach(function(signal) {
   process.on(signal, function() { unavailable = true; cleanup(); });
 });
-child = spawn('lsof', ['-w', '-t', '-a', '-U', process.argv[1]], {
+child = spawn('lsof', ['-t', '-a', '-U', process.argv[1]], {
   detached: true,
   stdio: ['ignore', 'pipe', 'pipe']
 });

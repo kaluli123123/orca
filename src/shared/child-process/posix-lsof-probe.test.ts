@@ -44,12 +44,7 @@ process.kill = function(pid, signal) {
 };
 `
 
-async function runProbe(options: {
-  signal?: string
-  census?: string
-  censusKillDenied?: boolean
-  lsof?: string
-}) {
+async function runProbe(options: { signal?: string; census?: string; censusKillDenied?: boolean }) {
   const dir = mkdtempSync(join(tmpdir(), 'orca-lsof-lifecycle-'))
   const pidFile = join(dir, 'lsof.pid')
   const psPidFile = join(dir, 'ps.pid')
@@ -57,7 +52,7 @@ async function runProbe(options: {
     writeFileSync(join(dir, 'preload.cjs'), PRELOAD)
     writeFileSync(
       join(dir, 'lsof'),
-      options.lsof ?? `#!/bin/sh\necho 123\n${options.signal ? 'exec sleep 60\n' : 'exit 2\n'}`,
+      `#!/bin/sh\necho 123\n${options.signal ? 'exec sleep 60\n' : 'exit 2\n'}`,
       { mode: 0o755 }
     )
     if (options.census !== undefined) {
@@ -116,23 +111,6 @@ async function runProbe(options: {
 }
 
 describe.skipIf(process.platform === 'win32')('lsof supervisor lifecycle', () => {
-  it('keeps holder evidence usable when lsof would warn about an unstat-able mount', async () => {
-    const result = await runProbe({
-      lsof: [
-        '#!/bin/sh',
-        'quiet=',
-        'for arg in "$@"; do [ "$arg" = "-w" ] && quiet=1; done',
-        '[ -z "$quiet" ] && echo "lsof: WARNING: can\'t stat() nfs fs /mnt/stale" >&2',
-        'echo 123',
-        'exit 0'
-      ].join('\n')
-    })
-    expect(result).toMatchObject({ code: 0, timedOut: false })
-    const [marker, ...pids] = result.stdout.split('\n')
-    expect(marker).toBe('lsof')
-    expect(pids.filter(Boolean)).toEqual(['123'])
-  })
-
   it.each(['SIGTERM', 'SIGHUP', 'SIGINT'])(
     'owns lsof when %s arrives inside spawn',
     async (signal) => {

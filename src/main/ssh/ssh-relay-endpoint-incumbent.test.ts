@@ -181,7 +181,7 @@ describe('probeRelayEndpointIncumbent', () => {
 
 describe('relayEndpointIncumbentProbeCommand', () => {
   it('ANDs the lsof selectors so it cannot match unrelated unix-socket holders', () => {
-    expect(RELAY_LSOF_PROBE_JS).toContain("['-w', '-t', '-a', '-U', process.argv[1]]")
+    expect(RELAY_LSOF_PROBE_JS).toContain("['-t', '-a', '-U', process.argv[1]]")
   })
 
   it('never unlinks the relay endpoint', () => {
