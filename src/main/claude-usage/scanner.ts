@@ -56,7 +56,8 @@ async function getProcessedFileStat(
 export async function scanClaudeUsageFiles(
   worktrees: ClaudeUsageWorktreeRef[],
   previousProcessedFiles: ClaudeUsagePersistedFile[] = [],
-  target?: ClaudeUsageScanTarget
+  target?: ClaudeUsageScanTarget,
+  onFilesScanned?: (count: number) => void
 ): Promise<{
   processedFiles: ClaudeUsagePersistedFile[]
   sessions: ClaudeUsageSession[]
@@ -75,6 +76,7 @@ export async function scanClaudeUsageFiles(
         fileInfoByPath.set(batch[batchIndex], fileInfo)
       }
     }
+    onFilesScanned?.(batch.length)
     if (index + batch.length < files.length) {
       await yieldToEventLoop()
     }
@@ -138,8 +140,7 @@ export async function scanClaudeUsageFiles(
   const parsedByPath = new Map<string, ClaudeUsagePersistedFile>()
   for (let index = 0; index < pathsToParse.length; index += FILE_SCAN_BATCH_SIZE) {
     const batch = pathsToParse.slice(index, index + FILE_SCAN_BATCH_SIZE)
-    // Why: transcript scans run in Electron's main process. Small parallel
-    // batches cut independent file I/O without letting Settings stay blocked.
+    // Small batches bound file I/O while preserving deterministic ownership.
     const reads = await Promise.all(batch.map((filePath) => readClaudeUsageScanFile(filePath)))
     for (const [batchIndex, filePath] of batch.entries()) {
       const { processedFile, turns } = reads[batchIndex]
@@ -168,6 +169,7 @@ export async function scanClaudeUsageFiles(
         hasDeferredClaims
       })
     }
+    onFilesScanned?.(batch.length)
     if (index + batch.length < pathsToParse.length) {
       await yieldToEventLoop()
     }

@@ -12,10 +12,29 @@ on:
       # Why: the mobile terminal link parsers are conformance-tested against
       # these shared fixtures; desktop-side fixture edits must re-run this suite.
       - 'src/shared/terminal-file-link-conformance.ts'
+      # Why: mobile imports the negotiated capability names directly and records
+      # the whole capability read verbatim in its goldens, so a capability added
+      # desktop-side rewrites a mobile fixture and must re-run this suite.
+      - 'src/shared/protocol-version.ts'
+      # Why: mobile's rpc-params-contract.ts is a type-only re-export of the
+      # generated params catalog, and mobile/tsconfig.json includes **/*.ts. A
+      # schema edit anywhere under here changes mobile's types, so a desktop-only
+      # change can break mobile's typecheck with no other mobile signal.
+      - 'src/shared/rpc-contract/**'
+      # Why: the catalog above holds params only. This file is the sole holder of
+      # the agent.launch RESULT shape, and mobile imports it as a value, not just
+      # a type. CROSS_VERSION_WIRE_PREFIXES already treats it as wire-critical, so
+      # without this one gate classes it that way while this one cannot see it.
+      - 'src/shared/agent-launch-intent.ts'
       # Why: this job holds the only checks that load the Fastfile, so edits to
       # it or to the release workflow it guards must re-run them.
       - '.github/workflows/mobile.yml'
+      - '.github/actions/install-node-dependencies/**'
       - '.github/workflows/mobile-ios-release.yml'
+
+concurrency:
+  group: mobile-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 
 jobs:
   verify:
@@ -35,10 +54,11 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v6
+      - uses: ./.github/actions/install-node-dependencies
         with:
-          node-version-file: package.json
+          cache-dependency-path: |
+            pnpm-lock.yaml
+            mobile/pnpm-lock.yaml
 
       # bundler-cache installs mobile/Gemfile.lock, so this job is also what
       # proves the pinned fastlane the release workflow depends on still
@@ -49,23 +69,6 @@ jobs:
           ruby-version: '3.3'
           bundler-cache: true
           working-directory: mobile
-
-      - name: Setup pnpm
-        uses: pnpm/setup@v2
-        with:
-          install: false
-
-      # Why: the mobile typecheck imports shared types from ../src/shared, and
-      # some of those files import runtime deps (tweetnacl, ws) resolved from
-      # the repo-root node_modules. Without a root install, tsc fails with
-      # "Cannot find module 'tweetnacl'/'ws'". Mobile is a separate pnpm project
-      # (not in the root workspace), so this is a distinct install.
-      # --ignore-scripts skips the root postinstall (Electron native-module
-      # rebuild) which is irrelevant to a type-only check and would only add
-      # time and failure surface on this ubuntu mobile runner.
-      - name: Install root dependencies
-        working-directory: .
-        run: pnpm install --frozen-lockfile --ignore-scripts
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile

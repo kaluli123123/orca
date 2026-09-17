@@ -13,7 +13,8 @@ import type {
 import type { AutomationRunUsage } from '../../shared/automations-types'
 import type { Store } from '../persistence'
 import type { ClaudeUsagePersistedState } from './types'
-import { scanClaudeUsageFiles, type ClaudeUsageScanTarget } from './scanner'
+import type { ClaudeUsageScanTarget } from './scanner'
+import { scanClaudeUsageFilesViaWorker } from '../usage/usage-scan-worker-spawn'
 import { UsageProviderStoreLifecycle } from '../usage/usage-provider-store-lifecycle'
 import { buildBreakdown, buildDaily, buildSummary } from './claude-usage-report-aggregation'
 import { buildRecentSessions } from './claude-usage-session-rows'
@@ -91,8 +92,8 @@ export class ClaudeUsageStore extends UsageProviderStoreLifecycle<
       jsonIndent: 2,
       scan: resolveScanTarget
         ? async (worktrees, previous) =>
-            scanClaudeUsageFiles(worktrees, previous, await resolveScanTarget())
-        : scanClaudeUsageFiles
+            scanClaudeUsageFilesViaWorker(worktrees, previous, await resolveScanTarget())
+        : scanClaudeUsageFilesViaWorker
     })
   }
 
@@ -145,7 +146,8 @@ export class ClaudeUsageStore extends UsageProviderStoreLifecycle<
   async getAutomationRunUsage(input: AutomationUsageLookupInput): Promise<AutomationRunUsage> {
     return resolveAutomationRunUsage(input, {
       getState: () => this.state,
-      refresh: (force) => this.refresh(force)
+      refresh: (force) => this.refresh(force),
+      isScanning: () => this.getScanState().isScanning
     })
   }
 }

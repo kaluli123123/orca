@@ -112,9 +112,12 @@ describe('scanClaudeUsageFiles WSL paths', () => {
 
   it('passes the selected config directory to transcript discovery', async () => {
     const { scanClaudeUsageFiles } = await import('./scanner')
+    const progress = vi.fn()
 
-    await scanClaudeUsageFiles([], [], { configDir: WSL_CONFIG })
+    await scanClaudeUsageFiles([], [], { configDir: WSL_CONFIG }, progress)
 
     expect(listClaudeTranscriptFilesMock).toHaveBeenCalledWith({ configDir: WSL_CONFIG })
+    expect(progress).toHaveBeenNthCalledWith(1, 1)
+    expect(progress).toHaveBeenNthCalledWith(2, 1)
   })
 })
