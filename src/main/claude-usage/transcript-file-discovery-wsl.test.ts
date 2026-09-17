@@ -48,9 +48,15 @@ const NATIVE_CONFIG = String.raw`C:\Users\ada\.claude`
 function dirent(name: string, kind: 'directory' | 'file'): Dirent {
   return {
     name,
+    parentPath: '',
     isDirectory: () => kind === 'directory',
-    isFile: () => kind === 'file'
-  } as Dirent
+    isFile: () => kind === 'file',
+    isBlockDevice: () => false,
+    isCharacterDevice: () => false,
+    isSymbolicLink: () => false,
+    isFIFO: () => false,
+    isSocket: () => false
+  }
 }
 
 beforeEach(() => {

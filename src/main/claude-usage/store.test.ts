@@ -713,7 +713,7 @@ describe('ClaudeUsageStore', () => {
   it('passes the current runtime target into Claude transcript scans', async () => {
     const target = { configDir: '/selected/.claude' }
     const store = new ClaudeUsageStore(createBackingStore(), async () => target)
-    ;(store as unknown as { state: ClaudeUsagePersistedState }).state.scanState.enabled = true
+    await store.setEnabled(true)
 
     await store.refresh(true)
 
