@@ -17,6 +17,7 @@ import { mergeProjectCompatibilityForHostRepoChange } from '../repos/repo-catalo
 import { applyProjectGroupDeleteCascade } from './project-group-removal-state'
 import { repoWithFetchedOwner, settingsForRepoOwner } from '../repos/owner-routing'
 import { projectGroupWithFetchedOwner } from './project-group-owner-stamping'
+import { createProjectGroupAction } from './project-group-create'
 import { getCatalogOwnerHostId } from '@/lib/worktree-runtime-owner-index'
 import {
   getProjectGroupRuntimeTarget,
@@ -36,34 +37,7 @@ export function createProjectGroupMutationActions(
   | 'moveProjectToGroup'
 > {
   return {
-    createProjectGroup: async (name) => {
-      try {
-        const target = getActiveRuntimeTarget(get().settings)
-        const group =
-          target.kind === 'local'
-            ? await window.api.projectGroups.create({
-                name,
-                createdFrom: 'manual'
-              })
-            : (
-                await callRuntimeRpc<{ group: ProjectGroup }>(
-                  target,
-                  'projectGroup.create',
-                  { name, createdFrom: 'manual' },
-                  { timeoutMs: 15_000 }
-                )
-              ).group
-        const ownedGroup = projectGroupWithFetchedOwner(group, target)
-        set((s) => ({
-          projectGroups: [...s.projectGroups, ownedGroup],
-          folderWorkspacePathStatuses: {}
-        }))
-        return ownedGroup
-      } catch (err) {
-        console.error('Failed to create project group:', err)
-        return null
-      }
-    },
+    createProjectGroup: createProjectGroupAction(set, get),
 
     updateProjectGroup: async (groupId, updates, options) => {
       try {

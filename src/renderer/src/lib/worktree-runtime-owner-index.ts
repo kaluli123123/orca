@@ -279,11 +279,11 @@ export function findIndexedRepoOwnerForHost<T extends RepoOwnerRecord>(
   return resolution?.kind === 'resolved' ? (resolution.owner as T) : null
 }
 
-export function findIndexedFolderWorkspaceOwner(
-  folderWorkspaces: readonly FolderWorkspaceOwnerRecord[] | undefined,
+export function findIndexedFolderWorkspaceOwner<T extends FolderWorkspaceOwnerRecord>(
+  folderWorkspaces: readonly T[] | undefined,
   folderWorkspaceId: string,
   executionHostId?: ExecutionHostId
-): FolderWorkspaceOwnerRecord | null {
+): T | null {
   if (!folderWorkspaces) {
     return null
   }
@@ -295,7 +295,8 @@ export function findIndexedFolderWorkspaceOwner(
   const resolution = index.get(
     executionHostId ? `${folderWorkspaceId}\0${executionHostId}` : folderWorkspaceId
   )
-  return resolution?.kind === 'resolved' ? resolution.owner : null
+  // The cache is keyed by this exact array, so its owner retains the caller's row type.
+  return resolution?.kind === 'resolved' ? (resolution.owner as T) : null
 }
 
 function getProjectGroupOwnerIndex(
@@ -312,15 +313,16 @@ function getProjectGroupOwnerIndex(
   return index
 }
 
-export function findIndexedProjectGroupOwner(
-  projectGroups: readonly ProjectGroupOwnerRecord[] | undefined,
+export function findIndexedProjectGroupOwner<T extends ProjectGroupOwnerRecord>(
+  projectGroups: readonly T[] | undefined,
   projectGroupId: string,
   executionHostId?: ExecutionHostId
-): ProjectGroupOwnerRecord | null {
+): T | null {
   const resolution = getProjectGroupOwnerIndex(projectGroups)?.get(
     executionHostId ? `${projectGroupId}\0${executionHostId}` : projectGroupId
   )
-  return resolution?.kind === 'resolved' ? resolution.owner : null
+  // The cache is keyed by this exact array, so its owner retains the caller's row type.
+  return resolution?.kind === 'resolved' ? (resolution.owner as T) : null
 }
 
 // Why: a duplicate groupId across the local and runtime catalogs makes the
