@@ -14,7 +14,7 @@ export function getWindowsPowerShellExecutablePath(): string {
  * Switches for the PowerShell that relays hook output and exit status
  * (#14818 — conhost does neither).
  *
- * The command line keeps only the safe profile/input flags because AV denies
+ * The command line keeps only the profile/input flags because AV denies
  * the policy/window combinations. #16003 measured, on the reporting Kaspersky host:
  *
  *   -NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -EncodedCommand  126
@@ -22,6 +22,8 @@ export function getWindowsPowerShellExecutablePath(): string {
  *   -WindowStyle Hidden -EncodedCommand                                     126
  *   -NoProfile -EncodedCommand                                              0 (5/5)
  *   -NoProfile -ExecutionPolicy Bypass -Command                             0 (5/5)
+ *
+ * This matrix did not measure the added `-NonInteractive` flag on that AV host.
  *
  * The denial is at CreateProcess and is independent of the payload: `exit 0` is
  * denied too, and bash reports it as `Permission denied`. So `-WindowStyle
