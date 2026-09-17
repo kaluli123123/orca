@@ -6,7 +6,7 @@ import {
   computeWorktreePathMock,
   deleteWorktreeHistoryDirMock,
   ensurePathWithinWorkspaceMock,
-  getBaseRefDefault,
+  resolveDefaultBaseRefWithLocalGit,
   getBranchConflictKind,
   getPRForBranchMock,
   gitRunner,
@@ -348,7 +348,7 @@ describe('OrcaRuntimeService', () => {
           suggestLocalBaseRefUpdate: true
         }
       )
-      expect(getBaseRefDefault).toHaveBeenCalled()
+      expect(resolveDefaultBaseRefWithLocalGit).toHaveBeenCalledWith({ cwd: TEST_REPO_PATH })
     } finally {
       getReposSpy.mockRestore()
       gitSpy.mockRestore()
@@ -398,7 +398,9 @@ describe('OrcaRuntimeService', () => {
         createdWorktree.path,
         'local-branch-base',
         'develop',
-        false
+        false,
+        false,
+        {}
       )
     } finally {
       getReposSpy.mockRestore()
@@ -447,7 +449,9 @@ describe('OrcaRuntimeService', () => {
         createdWorktree.path,
         'local-stale-base',
         'develop',
-        false
+        false,
+        false,
+        {}
       )
       expect(result.localBaseRefDriftWarning).toEqual({
         baseRef: 'develop',
@@ -509,7 +513,9 @@ describe('OrcaRuntimeService', () => {
         createdWorktree.path,
         'slash-local-base',
         'team/feature',
-        false
+        false,
+        false,
+        {}
       )
       expect(gitSpy).not.toHaveBeenCalledWith(
         [
@@ -604,7 +610,9 @@ describe('OrcaRuntimeService', () => {
       '/tmp/workspaces/feature-something',
       'feature/something',
       'origin/feature/something',
-      false
+      false,
+      false,
+      {}
     )
     expect(resolveLocalGitUsernameMock).not.toHaveBeenCalled()
     expect(result.worktree).toMatchObject({
