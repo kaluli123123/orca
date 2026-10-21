@@ -25,5 +25,5 @@ export function sshEndpointIdentity(target: {
     target.port <= 65_535
       ? target.port
       : 22
-  return `${host}\u0000${port}\u0000${target.username?.trim().toLowerCase() ?? ''}`
+  return `${host}\u0000${port}\u0000${target.username?.trim() ?? ''}`
 }

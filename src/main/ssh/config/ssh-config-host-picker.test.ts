@@ -77,6 +77,16 @@ describe('SSH config host picker search', () => {
     expect(result.newHostCount).toBe(0)
   })
 
+  it('keeps case-distinct SSH users on the same machine separate', () => {
+    const result = searchSshConfigHosts(
+      [{ host: 'admin-account', hostname: 'BOX', user: 'Admin' }],
+      [{ configHost: 'saved-account', label: 'Saved', host: 'box', port: 22, username: 'admin' }]
+    )
+
+    expect(result.hosts[0]).toMatchObject({ alias: 'admin-account', alreadyInOrca: false })
+    expect(result.newHostCount).toBe(1)
+  })
+
   it('leaves a different machine unflagged', () => {
     const result = searchSshConfigHosts(
       [{ host: 'aimp', hostname: '172.16.203.131', user: 'chanmuzi' }],

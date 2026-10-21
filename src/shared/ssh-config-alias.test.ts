@@ -30,8 +30,11 @@ describe('sshEndpointIdentity', () => {
     )
   })
 
-  it('folds host and user case but keeps a different user distinct', () => {
-    expect(sshEndpointIdentity({ host: 'BOX', port: 22, username: 'Me' })).toBe(
+  it('folds hostname case but preserves case-sensitive SSH usernames', () => {
+    expect(sshEndpointIdentity({ host: 'BOX', port: 22, username: 'me' })).toBe(
+      sshEndpointIdentity({ host: 'box', port: 22, username: 'me' })
+    )
+    expect(sshEndpointIdentity({ host: 'box', port: 22, username: 'Me' })).not.toBe(
       sshEndpointIdentity({ host: 'box', port: 22, username: 'me' })
     )
     expect(sshEndpointIdentity({ host: 'box', port: 22, username: 'me' })).not.toBe(
