@@ -88,7 +88,7 @@ describe('project group mutations route to the owning host', () => {
     })
 
     await expect(
-      store.getState().moveProjectToGroup(sourceRepo.id, destinationGroup.id, 1)
+      store.getState().moveProjectToGroup(sourceRepo, destinationGroup.id, 1)
     ).resolves.toBe(false)
 
     expect(runtimeEnvironmentCall).not.toHaveBeenCalled()

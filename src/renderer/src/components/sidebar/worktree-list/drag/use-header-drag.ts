@@ -5,10 +5,7 @@ import { getProjectGroupHostId } from '@/store/slices/project-group-owner-routin
 import type { ProjectGroup } from '../../../../../../shared/project-group-types'
 import type { ProjectOrderBy } from '../../../../../../shared/ui-chrome-types'
 import type { Repo } from '../../../../../../shared/repo-types'
-import {
-  getRepoExecutionHostId,
-  type ExecutionHostId
-} from '../../../../../../shared/execution-host'
+import type { ExecutionHostId } from '../../../../../../shared/execution-host'
 import type {
   HostHeaderRow,
   HostSectionRow
@@ -25,6 +22,8 @@ import { getSidebarOrderedRepoHeaderIdsByBucket } from '../../project-header-dro
 import { useProjectGroupHeaderDrag } from '../../project-group-header-drag'
 import { getSidebarOrderedProjectGroupHeaderIdsByBucket } from '../../project-group-header-drop'
 import { USER_SCROLL_MEASUREMENT_ADJUSTMENT_SUPPRESS_MS } from '../viewport/use-scroll-suppression'
+
+const readLiveRepos = (): readonly Repo[] => useAppStore.getState().repos
 
 export type WorktreeSidebarHeaderDrag = ReturnType<typeof useWorktreeSidebarHeaderDrag>
 
@@ -163,14 +162,10 @@ export function useWorktreeSidebarHeaderDrag(args: {
     [sidebarProjectGroupHeaderIdsByBucket]
   )
   const commitProjectGroupOrder = useCallback(
-    (repoId: string, projectGroupId: string | null, order: number) => {
-      const repo = repoMap.get(repoId)
-      if (!repo) {
-        return
-      }
-      void moveProjectToGroup(repoId, projectGroupId, order, getRepoExecutionHostId(repo))
+    (project: Repo, projectGroupId: string | null, order: number) => {
+      void moveProjectToGroup(project, projectGroupId, order)
     },
-    [moveProjectToGroup, repoMap]
+    [moveProjectToGroup]
   )
   const commitProjectGroupHeaderOrder = useCallback(
     (groupId: string, tabOrder: number) => {
@@ -189,6 +184,7 @@ export function useWorktreeSidebarHeaderDrag(args: {
     orderedRepoIds: allRepoIds,
     sidebarRepoHeaderIdsByBucket,
     repoById: repoMap,
+    getLiveRepos: readLiveRepos,
     usesProjectGroupOrdering: hasProjectGroups,
     onCommitRepoOrder: commitRepoReorder,
     onCommitProjectGroupOrder: commitProjectGroupOrder,

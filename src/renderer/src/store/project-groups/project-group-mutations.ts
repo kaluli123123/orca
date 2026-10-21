@@ -8,7 +8,11 @@ import {
   isProjectGroupJoinableFromCatalog,
   projectGroupMatchesOwnerHost
 } from '../slices/project-group-owner-routing'
-import { findRepoForHost, repoMatchesHostIdentity } from '../slices/repo-host-identity'
+import {
+  findRepoForHost,
+  isSameRepoRow,
+  repoMatchesHostIdentity
+} from '../slices/repo-host-identity'
 import { callRuntimeRpc } from '../../runtime/runtime-rpc-client'
 import { ipcOrRuntimeTargetForHostId } from '../../runtime/runtime-client-target'
 import { getRepoExecutionHostId } from '../../../../shared/execution-host'
@@ -157,7 +161,15 @@ export function createProjectGroupMutationActions(
 
     deleteProjectGroupWithContainedProjects: async (groupId, options) => {
       const route = resolveProjectGroupMutationTarget(get(), groupId, options)
-      if (!route) {
+      const targets = route
+        ? selectProjectGroupRemovalTargets(
+            get().projectGroups,
+            get().repos,
+            groupId,
+            route.ownerHostId
+          )
+        : null
+      if (!route || !targets?.groupExists) {
         return {
           status: 'missing-group',
           groupId,
@@ -167,22 +179,7 @@ export function createProjectGroupMutationActions(
         }
       }
       const { ownerHostId } = route
-      const targets = selectProjectGroupRemovalTargets(
-        get().projectGroups,
-        get().repos,
-        groupId,
-        ownerHostId
-      )
       const requestedProjectIds = options.removeContainedProjects ? targets.projectIds : []
-      if (!targets.groupExists) {
-        return {
-          status: 'missing-group',
-          groupId,
-          requestedProjectIds: [],
-          removedProjectIds: [],
-          failedProjectRemovals: []
-        }
-      }
 
       const deleted = await get().deleteProjectGroup(
         groupId,
@@ -259,11 +256,12 @@ export function createProjectGroupMutationActions(
       }
     },
 
-    moveProjectToGroup: async (projectId, groupId, order, hostId) => {
+    moveProjectToGroup: async (project, groupId, order) => {
       try {
-        const repo = findRepoForHost(get().repos, projectId, { settings: get().settings, hostId })
-        const target = repo ? ipcOrRuntimeTargetForHostId(getRepoExecutionHostId(repo)) : null
-        if (!target) {
+        const repo = get().repos.find((candidate) => isSameRepoRow(candidate, project))
+        const repoHostId = repo ? getRepoExecutionHostId(repo) : null
+        const target = repoHostId ? ipcOrRuntimeTargetForHostId(repoHostId) : null
+        if (!repo || !repoHostId || !target) {
           return false
         }
         if (groupId && !isProjectGroupJoinableFromCatalog(get().projectGroups, groupId, target)) {
@@ -273,15 +271,17 @@ export function createProjectGroupMutationActions(
         const moved =
           target.kind === 'local'
             ? await window.api.projectGroups.moveProject({
-                projectId,
+                projectId: repo.id,
                 groupId,
-                order
+                order,
+                hostId: repoHostId
               })
             : (
                 await callRuntimeRpc<{ repo: Repo | null }>(
                   target,
                   'projectGroup.moveProject',
-                  { repo: projectId, groupId, order },
+                  // Why connectionId: the server's own twins differ only by their SSH target there.
+                  { repo: repo.id, groupId, order, connectionId: repo.connectionId ?? null },
                   { timeoutMs: 15_000 }
                 )
               ).repo
@@ -291,8 +291,8 @@ export function createProjectGroupMutationActions(
         const ownedMoved = adoptFromEndpoint(target, { kind: 'repo', row: moved })
         const movedHostId = getRepoExecutionHostId(ownedMoved)
         set((s) => {
-          const nextRepos = s.repos.map((repo) =>
-            repoMatchesHostIdentity(repo, projectId, movedHostId) ? ownedMoved : repo
+          const nextRepos = s.repos.map((candidate) =>
+            isSameRepoRow(candidate, repo) ? ownedMoved : candidate
           )
           return {
             repos: nextRepos,

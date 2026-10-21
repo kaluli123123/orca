@@ -253,7 +253,7 @@ describe('project group deletion store routing', () => {
     expect(runtimeEnvironmentCall).not.toHaveBeenCalled()
   })
 
-  it('routes a move to the explicit host when a duplicate group id spans catalogs', async () => {
+  it('routes a move to the project row host when a duplicate group id spans catalogs', async () => {
     const movedRepo = { ...remoteRepo, projectGroupId: projectGroup.id }
     projectGroupsMoveProject.mockResolvedValue(movedRepo)
     const store = createTestStore()
@@ -267,18 +267,19 @@ describe('project group deletion store routing', () => {
     })
 
     await expect(
-      store.getState().moveProjectToGroup(remoteRepo.id, projectGroup.id, 3, 'local')
+      store.getState().moveProjectToGroup(remoteRepo, projectGroup.id, 3)
     ).resolves.toBe(true)
 
     expect(projectGroupsMoveProject).toHaveBeenCalledWith({
       projectId: remoteRepo.id,
       groupId: projectGroup.id,
-      order: 3
+      order: 3,
+      hostId: 'local'
     })
     expect(runtimeEnvironmentCall).not.toHaveBeenCalled()
   })
 
-  it('routes an ungroup to the explicit host when a duplicate repo id spans catalogs', async () => {
+  it('routes an ungroup to the project row host when a duplicate repo id spans catalogs', async () => {
     const localDupRepo: Repo = {
       ...remoteRepo,
       id: 'dup-repo',
@@ -299,13 +300,14 @@ describe('project group deletion store routing', () => {
     })
 
     await expect(
-      store.getState().moveProjectToGroup('dup-repo', null, undefined, 'local')
+      store.getState().moveProjectToGroup(localDupRepo, null)
     ).resolves.toBe(true)
 
     expect(projectGroupsMoveProject).toHaveBeenCalledWith({
       projectId: 'dup-repo',
       groupId: null,
-      order: undefined
+      order: undefined,
+      hostId: 'local'
     })
     expect(runtimeEnvironmentCall).not.toHaveBeenCalled()
   })
