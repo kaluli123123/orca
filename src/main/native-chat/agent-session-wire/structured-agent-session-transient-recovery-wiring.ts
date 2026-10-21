@@ -8,6 +8,12 @@ import { codexTransientTurnError } from '../../codex/codex-transient-turn-error'
 import type { StructuredAgentSessionHost } from './structured-agent-session-host'
 import type { StructuredAgentSessionHostSession } from './structured-agent-session-host-types'
 import { StructuredAgentSessionTransientRecovery } from './structured-agent-session-transient-recovery'
+import type { StructuredAgentSessionAttachContext } from './structured-agent-session-attach-context'
+import type { StructuredAgentSessionMutationContext } from './structured-agent-session-host-mutations'
+import { structuredAgentSessionMutationDelegates } from './structured-agent-session-host-mutations'
+import type { StructuredConversationCommandController } from './structured-conversation-command-controller'
+import type { AgentSessionRewindParams } from '../../../shared/agent-session-rewind'
+import { rewindStructuredAgentSession } from './structured-agent-session-rewind'
 
 export const TRANSIENT_RECOVERY_CALLER = 'trusted-local:transient-error-continuation'
 export const TRANSIENT_RECOVERY_MESSAGE =
@@ -88,4 +94,37 @@ export function wireTransientRecovery(
     }
   })
   return recovery
+}
+
+/** Cancel pending continuation synchronously before admitting any newer user mutation. */
+export function createTransientRecoveryMutationDelegates(
+  recovery: () => StructuredAgentSessionTransientRecovery,
+  context: () => StructuredAgentSessionMutationContext,
+  attachContext: () => StructuredAgentSessionAttachContext,
+  commands: StructuredConversationCommandController
+) {
+  const mutations = structuredAgentSessionMutationDelegates(context)
+  return {
+    ...mutations,
+    send: (...args: Parameters<StructuredConversationCommandController['send']>) => {
+      if (args[0].callerKey !== TRANSIENT_RECOVERY_CALLER) {
+        recovery().cancel(args[1].envelope.sessionId)
+      }
+      return commands.send(...args)
+    },
+    cancel: (...args: Parameters<typeof mutations.cancel>) =>
+      recovery().beforeUserAction(args[1].envelope.sessionId, () => mutations.cancel(...args)),
+    setOption: (...args: Parameters<typeof mutations.setOption>) =>
+      recovery().beforeUserAction(args[1].envelope.sessionId, () => mutations.setOption(...args)),
+    changeThreadGoal: (...args: Parameters<typeof mutations.changeThreadGoal>) =>
+      recovery().beforeUserAction(args[1].envelope.sessionId, () =>
+        mutations.changeThreadGoal(...args)
+      ),
+    rewind: (caller: Parameters<typeof mutations.cancel>[0], params: AgentSessionRewindParams) =>
+      recovery().beforeUserAction(params.envelope.sessionId, () =>
+        rewindStructuredAgentSession(context(), attachContext(), caller, params)
+      ),
+    conversationCommand: (...args: Parameters<StructuredConversationCommandController['run']>) =>
+      recovery().beforeUserAction(args[1].envelope.sessionId, () => commands.run(...args))
+  }
 }
