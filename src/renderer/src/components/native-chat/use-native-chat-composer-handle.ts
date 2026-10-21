@@ -9,6 +9,7 @@ import { useNativeChatAddressPreviews } from './use-native-chat-address-previews
 
 type UseNativeChatComposerHandleArgs = Parameters<typeof useNativeChatTypedInsertion>[0] &
   Omit<UseNativeChatComposerPasteArgs, 'insertTypedText'> & {
+    draft: string
     addressPreviewsEnabled: boolean
   }
 
@@ -20,6 +21,7 @@ export function useNativeChatComposerHandle(
   const {
     textareaRef,
     draft,
+    isComposing,
     setDraft,
     setActiveSuggestion,
     addressPreviewsEnabled,
@@ -35,8 +37,7 @@ export function useNativeChatComposerHandle(
   const { insertTypedText, appendText, acceptsText, insertPastedText, focus, contains } =
     useNativeChatTypedInsertion({
       textareaRef,
-      caret: args.caret,
-      draft,
+      isComposing,
       setDraft,
       setCaret: args.setCaret,
       setActiveSuggestion
