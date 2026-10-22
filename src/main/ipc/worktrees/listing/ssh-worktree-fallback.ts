@@ -1,5 +1,7 @@
+import { preserveFolderUpgradeWorktreePath } from '../../../folder-upgrade-worktree-path'
 import type { WorktreeMeta } from '../../../../shared/worktree/meta-types'
-import { parseWorktreeId, areWorktreePathsEqual, mergeWorktree } from '../../worktree-logic'
+import { parseWorktreeId } from '../../worktree-logic'
+import { mergeWorktree } from '../../worktree-metadata-merge'
 import {
   getRepoIdFromWorktreeId,
   getWorktreePathBasenameFromId
@@ -8,23 +10,21 @@ import type { Repo } from '../../../../shared/repo-types'
 import type { GitWorktreeInfo, DetectedWorktree, Worktree } from '../../../../shared/worktree/types'
 import type { Store } from '../../../persistence/loading-store/store'
 import { getRepoExecutionHostId } from '../../../../shared/execution-host'
-import {
-  readWorktreeMetaForHost,
-  writeWorktreeMetaForHost
-} from '../../../persistence/host-qualified-worktree-meta'
+import { readWorktreeMetaForRepo } from '../../../persistence/host-qualified-worktree-meta'
+import { hostWorktreeTarget } from '../../../../shared/worktree/host-qualified-identity'
 import { getRepoOwnedWorktreeMeta } from '../../../worktree-metadata-ownership'
 import {
   buildKnownOrcaWorkspaceLayouts,
   isLegacyRepoForExternalWorktreeVisibility,
   toDetectedWorktree
 } from '../../../../shared/worktree/ownership'
-import { dedupeWorktreesByPath } from '../../worktree-path-comparison'
+import { areWorktreePathsEqual, dedupeWorktreesByPath } from '../../../git/worktree-path-comparison'
 import {
   createWorktreeVisibilitySourceMatcher,
   resolveCustomWorktreeVisibilitySources
 } from '../../../../shared/worktree/visibility-sources'
 import { resolveConfiguredWorktreeBasePaths } from '../../../../shared/worktree/configured-worktree-base-path'
-import { projectResolvedWorktreeLineage } from '../../../../shared/resolved-worktree-lineage'
+import { projectWorktreeLineageWithHostPeers } from '../../../worktree-lineage-host-peers'
 import { loggedMalformedWorktreeMetaKeys, warnOnce } from './worktree-listing-diagnostics'
 import {
   getProjectHostSetupMetaUpdates,
@@ -115,7 +115,10 @@ export function listDisconnectedSshWorktrees(
         ? { ...candidate.meta, ...ownershipUpdates }
         : candidate.meta
     if (Object.keys(ownershipUpdates).length > 0) {
-      writeWorktreeMetaForHost(store, candidate.id, expectedHostId, ownershipUpdates)
+      store.setWorktreeMeta(
+        hostWorktreeTarget({ id: candidate.id, hostId: expectedHostId }),
+        ownershipUpdates
+      )
     }
     // Why: synthesized rows carry no branch, so the title would fall through to the DESKTOP's basename()
     // applied to a REMOTE path — a Windows remote then renders its whole C:\... path as the name. Rows must
@@ -144,7 +147,9 @@ export function buildDetectedGitWorktrees(
   const isLegacyRepoForVisibility = isLegacyRepoForExternalWorktreeVisibility(repo)
   // Why: a prunable registration has no working directory (issue #8389); only this listing omits it — cleanup flows list separately.
   const liveWorktrees = dedupeWorktreesByPath(
-    gitWorktrees.filter((gitWorktree) => !gitWorktree.prunable)
+    preserveFolderUpgradeWorktreePath(repo, gitWorktrees).filter(
+      (gitWorktree) => !gitWorktree.prunable
+    )
   )
   const worktreeVisibilitySourceMatcher = createWorktreeVisibilitySourceMatcher(
     [repo.path, ...liveWorktrees.map((worktree) => worktree.path)],
@@ -155,10 +160,11 @@ export function buildDetectedGitWorktrees(
   const repoOwnerCount = store.getRepos().filter((candidate) => candidate.id === repo.id).length
   const detected = liveWorktrees.map((gitWorktree) => {
     const worktreeId = `${repo.id}::${gitWorktree.path}`
-    const legacyMeta = store.getWorktreeMeta?.(worktreeId)
+    // Why: the locator-keyed row is only a stand-in for a missing host snapshot, so don't read it when we have one.
+    const legacyMeta = allMeta === undefined ? store.getWorktreeMeta?.(worktreeId) : undefined
     const metaById = allMeta ?? (legacyMeta ? { [worktreeId]: legacyMeta } : {})
-    let meta =
-      readWorktreeMetaForHost(store, worktreeId, getRepoExecutionHostId(repo)) ??
+    const meta =
+      readWorktreeMetaForRepo(store, worktreeId, repo) ??
       getRepoOwnedWorktreeMeta(repo, worktreeId, metaById, repoOwnerCount)
     const worktree = mergeWorktree(repo.id, gitWorktree, meta, repo.displayName)
     const detected = toDetectedWorktree({
@@ -174,24 +180,28 @@ export function buildDetectedGitWorktrees(
       return detected
     }
 
-    meta = resolveWorktreeMetaWithDiscoveryBackfill(
+    const backfilledMeta = resolveWorktreeMetaWithDiscoveryBackfill(
       store,
       repo,
       worktreeId,
       allMeta,
       repoOwnerCount
     )
+    // Why: backfill hands back the same object when it wrote nothing, and both builders are pure over it.
+    if (backfilledMeta === meta) {
+      return detected
+    }
     return toDetectedWorktree({
       repo,
-      worktree: mergeWorktree(repo.id, gitWorktree, meta, repo.displayName),
-      meta,
+      worktree: mergeWorktree(repo.id, gitWorktree, backfilledMeta, repo.displayName),
+      meta: backfilledMeta,
       settings,
       knownOrcaLayouts,
       isLegacyRepoForVisibility,
       worktreeVisibilitySourceMatcher
     })
   })
-  return projectResolvedWorktreeLineage(detected, store.getAllWorktreeLineage?.() ?? {})
+  return projectWorktreeLineageWithHostPeers(store, repo, detected)
 }
 
 export function stampAndMergeVisibleDetectedWorktree(

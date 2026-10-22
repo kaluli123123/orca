@@ -1,3 +1,4 @@
+import { OnboardingLanguageSwitcher } from './OnboardingLanguageSwitcher'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { cn } from '@/lib/utils'
 import { isEditableTarget } from '@/lib/editable-target'
@@ -15,6 +16,7 @@ import { OnboardingFooter } from './OnboardingFooter'
 import { shouldRequestOnboardingSkipConfirmation } from './onboarding-dismiss-target'
 import logo from '../../../../../resources/logo.svg'
 import { translate } from '@/i18n/i18n'
+import { addAppKeyListener, removeAppKeyListener } from '@/lib/app-keyboard-router'
 
 const stepCopy = {
   agent: {
@@ -90,11 +92,31 @@ const stepCopy = {
 } as const
 
 const stepTooltipLabels = {
-  agent: 'Default Agent',
-  theme: 'Appearance',
-  windows_terminal: 'Windows Terminal',
-  notifications: 'Notifications',
-  integrations: 'Integrations'
+  agent: {
+    get value() {
+      return translate('components.onboarding.flow.stepTooltip.agent', 'Default Agent')
+    }
+  },
+  theme: {
+    get value() {
+      return translate('components.onboarding.flow.stepTooltip.theme', 'Appearance')
+    }
+  },
+  windows_terminal: {
+    get value() {
+      return translate('components.onboarding.flow.stepTooltip.windowsTerminal', 'Windows Terminal')
+    }
+  },
+  notifications: {
+    get value() {
+      return translate('components.onboarding.flow.stepTooltip.notifications', 'Notifications')
+    }
+  },
+  integrations: {
+    get value() {
+      return translate('components.onboarding.flow.stepTooltip.integrations', 'Integrations')
+    }
+  }
 } as const
 
 type OnboardingFlowProps = {
@@ -113,7 +135,11 @@ export default function OnboardingFlow({
   const shouldShowSkipToProjectSetup = currentStep.id !== 'notifications'
   const shouldShowFooterBusy = Boolean(busyLabel)
   const footerPrimaryLabel =
-    busyLabel ?? (currentStep.id === 'notifications' ? 'Add your first project' : 'Continue')
+    busyLabel ??
+    (currentStep.id === 'notifications'
+      ? translate('components.onboarding.flow.actions.addFirstProject', 'Add your first project')
+      : translate('components.onboarding.flow.actions.continue', 'Continue'))
+  const [languagePickerOpen, setLanguagePickerOpen] = useState(false)
   const [skipConfirmOpen, setSkipConfirmOpen] = useState(false)
   const skipConfirmAdvancedViaRef = useRef<'button' | 'keyboard'>('button')
   const { next: flowNext, dismissOnboarding: flowDismissOnboarding } = flow
@@ -122,13 +148,13 @@ export default function OnboardingFlow({
     (advancedVia: 'button' | 'keyboard') => {
       // Why: click-off / Escape dismissal stays available on every step,
       // including the final notifications step, so the modal never feels stuck.
-      if (busyLabel || skipConfirmOpen) {
+      if (busyLabel || skipConfirmOpen || languagePickerOpen) {
         return
       }
       skipConfirmAdvancedViaRef.current = advancedVia
       setSkipConfirmOpen(true)
     },
-    [busyLabel, skipConfirmOpen]
+    [busyLabel, skipConfirmOpen, languagePickerOpen]
   )
 
   const confirmSkipOnboarding = useCallback(() => {
@@ -141,6 +167,9 @@ export default function OnboardingFlow({
   // re-bind on every render of the parent (flow object identity changes).
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent): void => {
+      if (languagePickerOpen || skipConfirmOpen) {
+        return
+      }
       // Why: don't hijack Enter / Cmd+Enter while the user is typing into the
       // clone-URL input or any other editable field on a step.
       if (isEditableTarget(event.target)) {
@@ -154,21 +183,21 @@ export default function OnboardingFlow({
       event.preventDefault()
       void flowNext('keyboard')
     }
-    window.addEventListener('keydown', onKeyDown, { capture: true })
-    return () => window.removeEventListener('keydown', onKeyDown, { capture: true })
-  }, [flowNext])
+    addAppKeyListener('keydown', onKeyDown)
+    return () => removeAppKeyListener('keydown', onKeyDown)
+  }, [flowNext, languagePickerOpen, skipConfirmOpen])
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent): void => {
-      if (event.key !== 'Escape' || skipConfirmOpen) {
+      if (event.key !== 'Escape' || skipConfirmOpen || languagePickerOpen) {
         return
       }
       event.preventDefault()
       requestSkipConfirmation('keyboard')
     }
-    window.addEventListener('keydown', onKeyDown, { capture: true })
-    return () => window.removeEventListener('keydown', onKeyDown, { capture: true })
-  }, [requestSkipConfirmation, skipConfirmOpen])
+    addAppKeyListener('keydown', onKeyDown)
+    return () => removeAppKeyListener('keydown', onKeyDown)
+  }, [requestSkipConfirmation, skipConfirmOpen, languagePickerOpen])
 
   return (
     <TooltipProvider delayDuration={0} skipDelayDuration={0}>
@@ -202,22 +231,29 @@ export default function OnboardingFlow({
           )}
         >
           <div className="relative flex h-full min-h-0 flex-col px-6 pb-6 pt-8 sm:px-8 sm:pb-8 sm:pt-9">
-            <div className="flex items-center gap-3 text-base font-semibold tracking-tight">
-              <img
-                src={logo}
-                alt=""
-                aria-hidden="true"
-                className="h-7 w-auto shrink-0 invert dark:invert-0"
+            <div className="flex items-center justify-between gap-3">
+              <div className="flex items-center gap-3 text-base font-semibold tracking-tight">
+                <img
+                  src={logo}
+                  alt=""
+                  aria-hidden="true"
+                  className="h-7 w-auto shrink-0 invert dark:invert-0"
+                />
+                <span>
+                  {translate('auto.components.onboarding.OnboardingFlow.a249f81538', 'Orca')}
+                </span>
+              </div>
+              <OnboardingLanguageSwitcher
+                open={languagePickerOpen}
+                onOpenChange={setLanguagePickerOpen}
               />
-              <span>
-                {translate('auto.components.onboarding.OnboardingFlow.a249f81538', 'Orca')}
-              </span>
             </div>
 
             <div className="mt-10 flex items-center gap-2 transition-[margin-top] duration-[760ms] ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none">
               {flow.progressSteps.map(({ step, index: realStepIndex }, progressIdx) => {
                 const isActive = realStepIndex === stepIndex
                 const isDone = realStepIndex < stepIndex
+                const stepTooltipLabel = stepTooltipLabels[step.id].value
                 return (
                   <Tooltip key={step.id}>
                     <TooltipTrigger asChild>
@@ -236,14 +272,14 @@ export default function OnboardingFlow({
                         aria-label={translate(
                           'auto.components.onboarding.OnboardingFlow.adaa0aa627',
                           'Go to onboarding step {{value0}}: {{value1}}',
-                          { value0: progressIdx + 1, value1: stepTooltipLabels[step.id] }
+                          { value0: progressIdx + 1, value1: stepTooltipLabel }
                         )}
                         aria-current={isActive ? 'step' : undefined}
                         onClick={() => flow.jumpToStep(realStepIndex)}
                       />
                     </TooltipTrigger>
                     <TooltipContent side="top" sideOffset={8} style={{ zIndex: 110 }}>
-                      {stepTooltipLabels[step.id]}
+                      {stepTooltipLabel}
                     </TooltipContent>
                   </Tooltip>
                 )

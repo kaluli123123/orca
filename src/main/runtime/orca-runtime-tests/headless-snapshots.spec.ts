@@ -111,6 +111,39 @@ describe('OrcaRuntimeService', () => {
     }
   })
 
+  it('keeps pre-TUI shell scrollback when hydrating from a renderer on the alternate screen (#6106)', async () => {
+    // The real renderer serializer emits the normal buffer first and the `?1049h`
+    // alt frame after it; asking it to zero the scrollback while a TUI is up drops
+    // the shell history, not the TUI bytes. Model that contract here.
+    const serializeBuffer = vi.fn(async (_ptyId: string, opts?: { scrollbackRows?: number }) => {
+      const suppressesScrollback =
+        (opts as Record<string, unknown> | undefined)?.altScreenForcesZeroRows === true
+      const scrollback = suppressesScrollback ? '' : 'PRE_CODEX_START\r\nAGENTS.md\r\n'
+      return {
+        data: `${scrollback}\x1b[?1049h\x1b[HCodex TUI frame`,
+        cols: 80,
+        rows: 24
+      }
+    })
+    const runtime = createRuntime()
+    runtime.setPtyController({
+      write: () => true,
+      kill: () => true,
+      getForegroundProcess: async () => null,
+      serializeBuffer,
+      hasRendererSerializer: () => true,
+      getSize: () => ({ cols: 80, rows: 24 })
+    })
+    syncSinglePty(runtime, 'pty-1')
+
+    runtime.onPtyData('pty-1', 'live byte', 100)
+
+    const snapshot = await runtime.serializeMainTerminalBuffer('pty-1', { scrollbackRows: 1000 })
+    const restored = `${snapshot?.scrollbackAnsi ?? ''}${snapshot?.data ?? ''}`
+    expect(restored).toContain('PRE_CODEX_START')
+    expect(restored).toContain('AGENTS.md')
+  })
+
   it('adopts renderer-seeded titles into headless main terminal snapshots', async () => {
     const artifactPath = '/tmp/renderer-seeded-artifact.json'
     const serializeBuffer = vi.fn().mockResolvedValue({
@@ -139,8 +172,7 @@ describe('OrcaRuntimeService', () => {
       lastTitle: 'Renderer seeded Codex'
     })
     expect(serializeBuffer).toHaveBeenCalledWith('pty-1', {
-      scrollbackRows: expect.any(Number),
-      altScreenForcesZeroRows: true
+      scrollbackRows: expect.any(Number)
     })
     expect(runtime.hasRecentTerminalOutputPath(terminal.handle, artifactPath, artifactPath)).toBe(
       true
@@ -349,13 +381,20 @@ describe('OrcaRuntimeService', () => {
 
   it('replaces suffix-only headless state with the recovered renderer snapshot', async () => {
     const runtime = createRuntime()
+    // A hidden desktop pane answers at its own size after a phone fit resized the PTY.
+    runtime.setPtyController({
+      write: () => true,
+      kill: () => true,
+      getForegroundProcess: async () => null,
+      getSize: () => ({ cols: 47, rows: 40 })
+    })
     syncSinglePty(runtime, 'pty-1')
-    runtime.seedHeadlessTerminal('pty-1', 'suffix-only redraw', { cols: 80, rows: 24 })
+    runtime.seedHeadlessTerminal('pty-1', 'suffix-only redraw', { cols: 47, rows: 40 })
 
     runtime.replaceHeadlessTerminalFromRendererSnapshotForRecovery('pty-1', {
       data: 'restored history\r\nprompt $ ',
-      cols: 80,
-      rows: 24,
+      cols: 200,
+      rows: 50,
       cwd: '/projects/restored'
     })
     runtime.onPtyData('pty-1', 'after recovery\r\n', 100)
@@ -367,6 +406,7 @@ describe('OrcaRuntimeService', () => {
     expect(snapshot?.data).toContain('after recovery')
     expect(snapshot?.data).not.toContain('suffix-only redraw')
     expect(snapshot?.cwd).toBe('/projects/restored')
+    expect({ cols: snapshot?.cols, rows: snapshot?.rows }).toEqual({ cols: 47, rows: 40 })
   })
 
   it('adopts OSC7 host metadata from seeded headless terminal scrollback', async () => {
@@ -412,8 +452,7 @@ describe('OrcaRuntimeService', () => {
       source: 'renderer'
     })
     expect(serializeBuffer).toHaveBeenCalledWith('pty-1', {
-      scrollbackRows: 5000,
-      altScreenForcesZeroRows: false
+      scrollbackRows: 5000
     })
   })
 
@@ -567,6 +606,8 @@ describe('OrcaRuntimeService', () => {
         tabId: 'tab-1',
         worktreeId: TEST_WORKTREE_ID,
         connectionId: null,
+        // The pane's handle rides the event so the store's row can rejoin its terminal.
+        terminalHandle: expect.stringMatching(/^term_/),
         payload: {
           state: 'working',
           prompt: 'ship it',

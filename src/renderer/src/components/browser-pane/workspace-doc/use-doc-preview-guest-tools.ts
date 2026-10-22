@@ -1,7 +1,8 @@
-import { useEffect, useMemo, useRef, useState, type MutableRefObject } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type MutableRefObject } from 'react'
 import { createBrowserUuid } from '@/lib/browser-uuid'
 import { useShortcutLabel } from '@/hooks/useShortcutLabel'
 import { syncGuestAnnotationViewportBridge } from '@/components/browser-pane/annotate/guest-annotation-viewport-bridge'
+import { consumeBrowserAnnotationViewportMessage } from '@/components/browser-pane/annotate/browser-annotation-viewport-message'
 import { useBrowserPageAnnotationSend } from '@/components/browser-pane/annotate/use-browser-page-annotation-send'
 import { useBrowserPageGrabAnnotations } from '@/components/browser-pane/annotate/use-browser-page-grab-annotations'
 import { useBrowserPageMarkupCapture } from '@/components/browser-pane/annotate/use-browser-page-markup-capture'
@@ -36,17 +37,33 @@ export function useDocPreviewGuestTools({
   annotationSend: ReturnType<typeof useBrowserPageAnnotationSend>
   grabAnnotations: ReturnType<typeof useBrowserPageGrabAnnotations>
   browserOverlayViewport: BrowserOverlayViewport
+  handleAnnotationViewportMessage: (event: { message?: string }) => void
+  resetBrowserOverlayViewport: () => void
   elementTools: BrowserChromeElementTools
 } {
   // Why still empty before the first grant: the page is only a tool target once a document is on
   // screen, and useGrabMode needs a stable identity every render rather than one to guess with.
   const toolTargetId = grantId === null ? '' : previewId
-  const annotationViewportBridgeTokenRef = useRef(createBrowserUuid().replaceAll('-', ''))
+  const annotationViewportBridgeTokenRef = useRef<string>(undefined!)
+  annotationViewportBridgeTokenRef.current ??= createBrowserUuid().replaceAll('-', '')
   const [browserOverlayViewport, setBrowserOverlayViewport] = useState<BrowserOverlayViewport>({
     scrollX: 0,
     scrollY: 0,
     version: 0
   })
+  const handleAnnotationViewportMessage = useCallback(
+    (event: { message?: string }): void =>
+      consumeBrowserAnnotationViewportMessage(
+        event,
+        annotationViewportBridgeTokenRef.current,
+        setBrowserOverlayViewport
+      ),
+    []
+  )
+  const resetBrowserOverlayViewport = useCallback(
+    (): void => setBrowserOverlayViewport({ scrollX: 0, scrollY: 0, version: 0 }),
+    []
+  )
 
   const grabElementShortcut = useShortcutLabel('browser.grabElement')
   const grab = useGrabMode(toolTargetId)
@@ -60,8 +77,7 @@ export function useDocPreviewGuestTools({
     containerRef,
     webviewRef,
     setBrowserOverlayViewport,
-    browserAnnotationsLength: annotationSend.browserAnnotations.length,
-    setBrowserAnnotationTrayOpen: annotationSend.setBrowserAnnotationTrayOpen
+    browserAnnotationsLength: annotationSend.browserAnnotations.length
   })
 
   const { browserAnnotations } = annotationSend
@@ -99,5 +115,14 @@ export function useDocPreviewGuestTools({
     ]
   )
 
-  return { grab, markup, annotationSend, grabAnnotations, browserOverlayViewport, elementTools }
+  return {
+    grab,
+    markup,
+    annotationSend,
+    grabAnnotations,
+    browserOverlayViewport,
+    handleAnnotationViewportMessage,
+    resetBrowserOverlayViewport,
+    elementTools
+  }
 }

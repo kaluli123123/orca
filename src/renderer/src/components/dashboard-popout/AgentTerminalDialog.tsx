@@ -1,7 +1,7 @@
 import { useEffect, useId } from 'react'
 import { SquareArrowOutUpRight, XIcon } from 'lucide-react'
-import { AgentIcon } from '@/lib/agent-catalog'
-import { agentTypeToIconAgent, formatAgentTypeLabel } from '@/lib/agent-status'
+import { AgentTypeIcon } from '@/lib/agent-type-icon'
+import { formatAgentTypeLabel } from '@/lib/agent-status'
 import { agentStateLabel } from '@/components/AgentStateDot'
 import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
@@ -11,6 +11,7 @@ import {
   type DashboardRevealAgentArgs
 } from '../../../../shared/dashboard-snapshot'
 import { AgentTerminalPreview } from './AgentTerminalPreview'
+import { terminalPreviewUnavailableMessage } from './terminal-preview-unavailable-message'
 import { translate } from '@/i18n/i18n'
 import { cn } from '@/lib/utils'
 
@@ -54,7 +55,7 @@ function AgentTerminalFrame({
     <>
       <div className="flex shrink-0 items-center gap-1.5 px-2.5 py-2">
         <span className="inline-flex shrink-0">
-          <AgentIcon agent={agentTypeToIconAgent(card.agentType)} size={13} />
+          <AgentTypeIcon agentType={card.agentType} size={13} />
         </span>
         {title}
         <span className="text-[11px] text-muted-foreground">
@@ -80,10 +81,7 @@ function AgentTerminalFrame({
         />
       ) : (
         <div className="min-h-0 flex-1 px-2.5 pb-2 text-[11px] text-muted-foreground">
-          {translate(
-            'dashboardPopout.terminal.closed',
-            "No live terminal — this agent's pane has closed."
-          )}
+          {terminalPreviewUnavailableMessage({ hostKind: card.hostKind })}
         </div>
       )}
       <div className="flex shrink-0 items-center gap-1.5 px-2.5 py-1.5">

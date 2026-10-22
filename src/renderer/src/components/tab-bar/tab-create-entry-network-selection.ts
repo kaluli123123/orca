@@ -27,12 +27,20 @@ export function useNetworkSafeTabEntrySelection({
   const pinnedOptionIndex = pinnedOptionId
     ? activeOptions.findIndex((option) => getActiveOptionId(option) === pinnedOptionId)
     : -1
+  const missingPinnedAgent =
+    pinnedOptionIndex < 0 &&
+    (pinnedOptionId?.startsWith('chat:') || pinnedOptionId?.startsWith('cli:'))
   const rankedOption = pinnedOptionIndex < 0 ? activeOptions[0] : undefined
   const rankedClassification =
     rankedOption?.kind === 'entry' ? rankedOption.option.classification : null
+  // A history row navigates away too, so it waits on the same scan: while the
+  // index is still loading "readme" has no file rows yet, and Enter must not
+  // quietly leave for readme.io.
   const rankedNetworkAction =
     !forcedSearch &&
-    (rankedClassification?.kind === 'search' || rankedClassification?.kind === 'host-url')
+    (rankedOption?.kind === 'history' ||
+      rankedClassification?.kind === 'search' ||
+      rankedClassification?.kind === 'host-url')
   // Why: a still-scanning index can promote a file match later, so hold Enter
   // unless the scan can no longer change the ranking — it failed outright, or
   // the text is a phrase that would never rank as a file.
@@ -54,8 +62,9 @@ export function useNetworkSafeTabEntrySelection({
   }, [fileIndexReady, hasRankedOption, rankedNetworkAction, rankingKey])
   const networkActionAllowed =
     networkRankingSettled && blockedNetworkRankingRef.current !== rankingKey
-  const activeSelectedIndex =
-    pinnedOptionIndex >= 0
+  const activeSelectedIndex = missingPinnedAgent
+    ? null
+    : pinnedOptionIndex >= 0
       ? pinnedOptionIndex
       : activeOptions.length === 0 || (rankedNetworkAction && !networkActionAllowed)
         ? null

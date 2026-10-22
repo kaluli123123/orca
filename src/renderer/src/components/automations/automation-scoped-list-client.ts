@@ -9,11 +9,13 @@
  * that would attribute other hosts' automations to the selected one.
  */
 
-import { callRuntimeRpc, type RuntimeClientTarget } from '@/runtime/runtime-rpc-client'
+import { callRuntimeRpc } from '@/runtime/runtime-rpc-client'
+import type { RuntimeClientTarget } from '../../../../shared/runtime-client-target'
 import type {
   Automation,
   AutomationCreateInput,
   AutomationRun,
+  AutomationRunsPage,
   AutomationUpdateInput
 } from '../../../../shared/automations-types'
 import type {
@@ -37,6 +39,7 @@ import {
 } from './automation-host-client'
 import {
   assertAuthorityCapability,
+  assertExtraAgentArgsSupported,
   assertOwnerFencingSupported,
   assertAutomationCreateIdempotencySupported,
   AUTOMATION_LIST_HOST_SCOPE_RUNTIME_CAPABILITY,
@@ -173,11 +176,13 @@ export async function listAutomationsForOwner(
 async function listRunsFenced(
   authority: AutomationAuthorityRef,
   automationId: string,
-  expectedOwner: AutomationOwnerPrecondition
+  expectedOwner: AutomationOwnerPrecondition,
+  options: { limit?: number; cursor?: string } = {}
 ): Promise<AutomationRun[]> {
   const result = await callAuthority<{ runs: AutomationRun[] }>(authority, 'automation.runs', {
     automationId,
-    expectedOwner
+    expectedOwner,
+    ...options
   })
   return result.runs
 }
@@ -187,6 +192,19 @@ export async function listAutomationRunsForOwner(
   automationId: string
 ): Promise<AutomationRun[]> {
   return await listRunsFenced(owner.authority, automationId, ownerPrecondition(owner))
+}
+
+export async function listAutomationRunsPageForOwner(
+  owner: AutomationOwnerRef,
+  automationId: string,
+  options: { limit?: number; cursor?: string } = {}
+): Promise<AutomationRunsPage> {
+  const result = await callAuthority<AutomationRunsPage | { runs: AutomationRun[] }>(
+    owner.authority,
+    'automation.runs',
+    { automationId, expectedOwner: ownerPrecondition(owner), ...options }
+  )
+  return { runs: result.runs, nextCursor: 'nextCursor' in result ? result.nextCursor : null }
 }
 
 /**
@@ -202,6 +220,7 @@ async function updateFenced(
   destination?: AutomationDestination
 ): Promise<Automation> {
   await assertOwnerFencingSupported(authority)
+  await assertExtraAgentArgsSupported(authority, updates.extraAgentArgs)
   const result = await callAuthority<{ automation: Automation }>(authority, 'automation.update', {
     id,
     updates: toRuntimeAutomationUpdateInput(updates),
@@ -269,6 +288,19 @@ export async function listOrphanAutomationRuns(
   return await listRunsFenced(authority, automationId, ORPHAN_OWNER_PRECONDITION)
 }
 
+export async function listOrphanAutomationRunsPage(
+  authority: AutomationAuthorityRef,
+  automationId: string,
+  options: { limit?: number; cursor?: string } = {}
+): Promise<AutomationRunsPage> {
+  const result = await callAuthority<AutomationRunsPage | { runs: AutomationRun[] }>(
+    authority,
+    'automation.runs',
+    { automationId, expectedOwner: ORPHAN_OWNER_PRECONDITION, ...options }
+  )
+  return { runs: result.runs, nextCursor: 'nextCursor' in result ? result.nextCursor : null }
+}
+
 export async function runAutomationNowForOwner(
   owner: AutomationOwnerRef,
   id: string
@@ -291,6 +323,8 @@ export async function createAutomationForDestination(
     await assertAutomationCreateIdempotencySupported(authority)
   }
   await assertOwnerFencingSupported(authority)
+  // Why before create: a move is create-then-delete and must refuse before mutating anything.
+  await assertExtraAgentArgsSupported(authority, input.extraAgentArgs)
   const result = await callAuthority<{ automation: Automation }>(authority, 'automation.create', {
     ...toRuntimeAutomationCreateInput(input),
     destination

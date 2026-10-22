@@ -130,7 +130,7 @@ describe('OrcaRuntimeService', () => {
         repos.push(repo)
       },
       getRepo: (id: string) => repos.find((repo) => repo.id === id) as never,
-      updateRepo: (id: string, updates: Record<string, unknown>) => {
+      updateRepo: ({ id }: { id: string }, updates: Record<string, unknown>) => {
         const index = repos.findIndex((repo) => repo.id === id)
         if (index === -1) {
           return null
@@ -207,7 +207,7 @@ describe('OrcaRuntimeService', () => {
       getRepos: () => [...repos] as never,
       addRepo: (repo: Record<string, unknown>) => repos.push(repo),
       getRepo: (id: string) => repos.find((repo) => repo.id === id) as never,
-      updateRepo: (id: string, updates: Record<string, unknown>) => {
+      updateRepo: ({ id }: { id: string }, updates: Record<string, unknown>) => {
         const repo = repos.find((entry) => entry.id === id)
         if (!repo) {
           return null
@@ -259,7 +259,7 @@ describe('OrcaRuntimeService', () => {
       getRepos: () => [...repos] as never,
       addRepo: (repo: Record<string, unknown>) => repos.push(repo),
       getRepo: (id: string) => repos.find((repo) => repo.id === id) as never,
-      updateRepo: (id: string, updates: Record<string, unknown>) => {
+      updateRepo: ({ id }: { id: string }, updates: Record<string, unknown>) => {
         const repo = repos.find((entry) => entry.id === id)
         if (!repo) {
           return null
@@ -267,7 +267,7 @@ describe('OrcaRuntimeService', () => {
         Object.assign(repo, updates)
         return { ...repo } as never
       },
-      removeProject: (id: string) => {
+      removeProjectForHost: ({ id }: { id: string }) => {
         const index = repos.findIndex((repo) => repo.id === id)
         if (index !== -1) {
           repos.splice(index, 1)
@@ -309,7 +309,7 @@ describe('OrcaRuntimeService', () => {
     const runtimeStore = {
       ...store,
       getRepos: () => [...repos] as never,
-      removeProject: (id: string) => {
+      removeProjectForHost: ({ id }: { id: string }) => {
         const index = repos.findIndex((repo) => repo.id === id)
         if (index !== -1) {
           repos.splice(index, 1)
@@ -348,7 +348,7 @@ describe('OrcaRuntimeService', () => {
         repos.push(repo)
       },
       getRepo: (id: string) => repos.find((repo) => repo.id === id) as never,
-      updateRepo: (id: string, updates: Record<string, unknown>) => {
+      updateRepo: ({ id }: { id: string }, updates: Record<string, unknown>) => {
         const index = repos.findIndex((repo) => repo.id === id)
         if (index === -1) {
           return null
@@ -465,7 +465,7 @@ describe('OrcaRuntimeService', () => {
         repos.push(repo)
       },
       getRepo: (id: string) => repos.find((repo) => repo.id === id) as never,
-      updateRepo: (id: string, updates: Record<string, unknown>) => {
+      updateRepo: ({ id }: { id: string }, updates: Record<string, unknown>) => {
         const index = repos.findIndex((repo) => repo.id === id)
         if (index === -1) {
           return null
@@ -506,7 +506,7 @@ describe('OrcaRuntimeService', () => {
           repos.push(repo)
         },
         getRepo: (id: string) => repos.find((repo) => repo.id === id) as never,
-        updateRepo: (id: string, updates: Record<string, unknown>) => {
+        updateRepo: ({ id }: { id: string }, updates: Record<string, unknown>) => {
           const index = repos.findIndex((repo) => repo.id === id)
           if (index === -1) {
             return null
@@ -539,7 +539,7 @@ describe('OrcaRuntimeService', () => {
         repos.push(repo)
       },
       getRepo: (id: string) => repos.find((repo) => repo.id === id) as never,
-      updateRepo: (id: string, updates: Record<string, unknown>) => {
+      updateRepo: ({ id }: { id: string }, updates: Record<string, unknown>) => {
         const index = repos.findIndex((repo) => repo.id === id)
         if (index === -1) {
           return null
@@ -588,7 +588,7 @@ describe('OrcaRuntimeService', () => {
     }
   })
 
-  it('refuses SSH hosts instead of setting the project up on the local machine', async () => {
+  it('never sets an SSH-hosted project up on the local machine', async () => {
     // Why: both inputs must be paths the pre-guard code would have accepted. An unwritable
     // destination fails at mkdir and a non-repo path fails at isGitRepo, which would leave the
     // side-effect assertions below unable to observe the local clone/probe they exist to catch.
@@ -634,16 +634,23 @@ describe('OrcaRuntimeService', () => {
         })
         .catch((error: unknown) => error)
 
+      expect(() => runtime.addSshRepo({ connectionId: 'openclaw' })).toThrow(
+        "This Orca server can't add projects on its SSH hosts."
+      )
+
       // Why: the defect was a silent local clone/probe recorded as remote, not a bad message,
       // so the absent side effects are asserted before the wording. Both calls are awaited
       // first so a regression reports the corruption rather than stopping at the first throw.
       expect(spawnSpy).not.toHaveBeenCalled()
       expect(repos).toHaveLength(0)
+      // Cloning onto an SSH host has no implementation here, so it still refuses outright.
       expect(cloneError).toMatchObject({
-        message: expect.stringMatching(/SSH hosts are not supported/)
+        message: expect.stringMatching(/Cloning onto an SSH host is not supported/)
       })
+      // Registering an existing remote path does have one, so this now fails on the host's own
+      // terms — the SSH connection is not registered — rather than on a categorical refusal.
       expect(existingFolderError).toMatchObject({
-        message: expect.stringMatching(/SSH hosts are not supported/)
+        message: expect.stringMatching(/SSH connection "openclaw" not found or not connected/)
       })
     } finally {
       spawnSpy.mockRestore()

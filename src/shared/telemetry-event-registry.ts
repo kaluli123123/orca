@@ -1,4 +1,10 @@
 import {
+  onboardingLanguagePickerOpenedSchema,
+  onboardingLanguageChangedSchema,
+  onboardingLanguageRequestedSchema
+} from './telemetry-onboarding-language-schemas'
+import { agentTokenUsageSchema } from './telemetry-agent-token-usage-schema'
+import {
   agentErrorSchema,
   agentPromptSentSchema,
   agentStartedSchema,
@@ -14,10 +20,14 @@ import {
   agentHookTransportBlockedSchema,
   agentHookUnattributedSchema,
   codexTrustGrantSchema,
+  daemonAdoptedSchema,
   daemonAuditEligibilitySchema,
+  daemonFolderAccessNoticeSchema,
   daemonLifecycleSchema,
+  daemonPtyCwdVerdictSchema,
   daemonStartFailedSchema,
   mainThreadHangDetectedSchema,
+  profileStateAuthoritySelectedSchema,
   remoteOutboundBudgetCloseSchema,
   runtimeRpcStartFailedSchema,
   settingsChangedSchema
@@ -25,7 +35,6 @@ import {
 import {
   contextualTourOutcomeSchema,
   contextualTourShownSchema,
-  directSshReconnectOperationSchema,
   editorExternalChangeConflictActionSchema,
   editorExternalChangeConflictShownSchema,
   setupGuideClosedSchema,
@@ -75,10 +84,7 @@ import {
   onboardingStepViewedSchema,
   onboardingTaskSourcesSnapshotSchema,
   onboardingTourOutcomeEventSchema,
-  onboardingWindowsTerminalSnapshotSchema,
-  smartSortClass1PromotionSchema,
-  smartSortClassDistributionSchema,
-  smartToRecentSwitchSchema
+  onboardingWindowsTerminalSnapshotSchema
 } from './telemetry-onboarding-event-schemas'
 import {
   addRepoDefaultCheckoutHandoffSchema,
@@ -91,6 +97,14 @@ import {
   setupScriptPromptShownSchema,
   workspaceCreateFailedSchema
 } from './telemetry-repository-event-schemas'
+import { sshRemoteRuntimeResolvedSchema } from './telemetry-ssh-runtime-event-schemas'
+import {
+  sshHostServerConversionSchema,
+  sshHostServerDecidedSchema,
+  sshHostServerDeployFailedSchema,
+  sshHostServerMoveSchema,
+  sshHostServerLegacyRelayBridgeSchema
+} from './telemetry-ssh-host-server-event-schemas'
 
 // ── Event registry: the one record the validator consumes ───────────────
 // Versioning: breaking changes (rename/re-mean/remove a key) need a new event name; in-place edits blend pre/post rows unmixably. Additive-optional fields are safe.
@@ -112,6 +126,7 @@ export const eventSchemas = {
   setup_script_prompt_shown: setupScriptPromptShownSchema,
   setup_script_prompt_action: setupScriptPromptActionSchema,
 
+  agent_token_usage: agentTokenUsageSchema,
   agent_started: agentStartedSchema,
   agent_prompt_sent: agentPromptSentSchema,
   agent_error: agentErrorSchema,
@@ -122,9 +137,14 @@ export const eventSchemas = {
   daemon_start_failed: daemonStartFailedSchema,
   main_thread_hang_detected: mainThreadHangDetectedSchema,
   daemon_lifecycle: daemonLifecycleSchema,
+  daemon_adopted: daemonAdoptedSchema,
+  daemon_pty_cwd_denied: daemonPtyCwdVerdictSchema,
+  daemon_pty_cwd_readable: daemonPtyCwdVerdictSchema,
+  daemon_folder_access_notice: daemonFolderAccessNoticeSchema,
   daemon_audit_eligibility: daemonAuditEligibilitySchema,
   runtime_rpc_start_failed: runtimeRpcStartFailedSchema,
   remote_outbound_budget_close: remoteOutboundBudgetCloseSchema,
+  profile_state_authority_selected: profileStateAuthoritySelectedSchema,
 
   codex_trust_grant: codexTrustGrantSchema,
 
@@ -154,6 +174,9 @@ export const eventSchemas = {
   feature_wall_feature_selected: featureWallFeatureSelectedSchema,
   feature_wall_docs_clicked: featureWallDocsClickedSchema,
 
+  onboarding_language_picker_opened: onboardingLanguagePickerOpenedSchema,
+  onboarding_language_changed: onboardingLanguageChangedSchema,
+  onboarding_language_requested: onboardingLanguageRequestedSchema,
   onboarding_started: onboardingStartedSchema,
   onboarding_step_viewed: onboardingStepViewedSchema,
   onboarding_step_completed: onboardingStepCompletedSchema,
@@ -185,9 +208,10 @@ export const eventSchemas = {
   editor_external_change_conflict_shown: editorExternalChangeConflictShownSchema,
   editor_external_change_conflict_action: editorExternalChangeConflictActionSchema,
 
-  direct_ssh_reconnect_operation: directSshReconnectOperationSchema,
-
-  smart_sort_class_distribution: smartSortClassDistributionSchema,
-  smart_sort_class_1_promotion: smartSortClass1PromotionSchema,
-  smart_to_recent_switch: smartToRecentSwitchSchema
+  ssh_remote_runtime_resolved: sshRemoteRuntimeResolvedSchema,
+  ssh_host_server_decided: sshHostServerDecidedSchema,
+  ssh_host_server_conversion: sshHostServerConversionSchema,
+  ssh_host_server_deploy_failed: sshHostServerDeployFailedSchema,
+  ssh_host_server_move: sshHostServerMoveSchema,
+  ssh_host_server_legacy_relay_bridge: sshHostServerLegacyRelayBridgeSchema
 } as const

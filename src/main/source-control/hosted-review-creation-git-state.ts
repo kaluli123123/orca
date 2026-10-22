@@ -3,7 +3,6 @@ import {
   normalizeHostedReviewBaseRef,
   normalizeHostedReviewHeadRef
 } from '../../shared/hosted-review-refs'
-import { isNoUpstreamError, normalizeGitErrorMessage } from '../../shared/git-remote-error'
 import { isSafeGitRefName } from '../../shared/git-status-upstream-ref'
 import type { GitUpstreamStatus } from '../../shared/git-status-types'
 import { gitExecFileAsync } from '../github/gh-utils'
@@ -13,7 +12,8 @@ import { parsePorcelainV1Records, type PorcelainV1Record } from '../git/porcelai
 import { resolveDefaultBaseRefViaExec } from '../git/repo'
 import { getUpstreamStatus } from '../git/upstream'
 import { findExistingWorktreeSymlinkPaths } from '../git/worktree-symlink-detection'
-import { getSshGitProvider } from '../providers/ssh-git-dispatch'
+import { requireReachableGitRoute } from '../providers/execution-host-provider-dispatch'
+import type { ExecutionHostId } from '../../shared/execution-host'
 import {
   getHostedReviewLocalGitOptions,
   type HostedReviewExecutionOptions
@@ -117,24 +117,19 @@ async function listSuffixRemoteBaseRefs(
   }
 }
 
+/**
+ * Why not a `connectionId` check: `null` used to mean "local", "runtime host" and "unresolved"
+ * alike, so a worktree whose owner is named only by `executionHostId` had its preflight git run
+ * against this machine's copy of a remote path. `runtime:` and `ssh:` hosts throw instead.
+ */
 async function runGitForHostedReview(
   repoPath: string,
   args: string[],
-  connectionId?: string | null,
+  executionHostId: ExecutionHostId,
   options: HostedReviewExecutionOptions = {},
   commandOptions: HostedReviewGitRunOptions = {}
 ): Promise<{ stdout: string; stderr?: string }> {
-  if (connectionId) {
-    const provider = getSshGitProvider(connectionId)
-    if (!provider) {
-      throw new Error(
-        'Remote connection dropped. Click Reconnect on the SSH target before retrying.'
-      )
-    }
-    return commandOptions.timeoutMs === undefined
-      ? provider.exec(args, repoPath)
-      : provider.exec(args, repoPath, { timeoutMs: commandOptions.timeoutMs })
-  }
+  requireReachableGitRoute(executionHostId)
   return gitExecFileAsync(args, {
     cwd: repoPath,
     ...getHostedReviewLocalGitOptions(options),
@@ -145,11 +140,11 @@ async function runGitForHostedReview(
 
 export async function getDefaultBaseRef(
   repoPath: string,
-  connectionId?: string | null,
+  executionHostId: ExecutionHostId,
   options: HostedReviewExecutionOptions = {}
 ): Promise<string | null> {
   return resolveDefaultBaseRefViaExec((argv) =>
-    runGitForHostedReview(repoPath, argv, connectionId, options)
+    runGitForHostedReview(repoPath, argv, executionHostId, options)
   )
 }
 
@@ -162,7 +157,7 @@ export async function getDefaultBaseRef(
 export async function baseRefExistsOnRemote(
   candidate: string,
   repoPath: string,
-  connectionId?: string | null,
+  executionHostId: ExecutionHostId,
   options: HostedReviewExecutionOptions = {}
 ): Promise<boolean> {
   const base = normalizeHostedReviewBaseRef(candidate).trim()
@@ -170,7 +165,7 @@ export async function baseRefExistsOnRemote(
     return false
   }
   const run: HostedReviewGitRun = (argv, commandOptions) =>
-    runGitForHostedReview(repoPath, argv, connectionId, options, commandOptions)
+    runGitForHostedReview(repoPath, argv, executionHostId, options, commandOptions)
 
   // Validate the complete tracking ref before interpolating user/repo metadata
   // into Git arguments. In particular, never let `*`, `?`, or control bytes
@@ -227,13 +222,13 @@ export async function baseRefExistsOnRemote(
 
 export async function getCurrentBranch(
   repoPath: string,
-  connectionId?: string | null,
+  executionHostId: ExecutionHostId,
   options: HostedReviewExecutionOptions = {}
 ): Promise<string> {
   const { stdout } = await runGitForHostedReview(
     repoPath,
     ['rev-parse', '--abbrev-ref', 'HEAD'],
-    connectionId,
+    executionHostId,
     options
   )
   return stripRefPrefix(stdout.trim())
@@ -241,21 +236,10 @@ export async function getCurrentBranch(
 
 export async function hasUncommittedChanges(
   repoPath: string,
-  connectionId?: string | null,
+  executionHostId: ExecutionHostId,
   options: HostedReviewExecutionOptions = {}
 ): Promise<boolean> {
-  if (connectionId) {
-    const provider = getSshGitProvider(connectionId)
-    if (!provider) {
-      throw new Error(
-        'Remote connection dropped. Click Reconnect on the SSH target before retrying.'
-      )
-    }
-    // Why: the relay restricts generic git.exec, so use the structured status RPC for SSH dirty checks.
-    // No shared-link exclusion here: remote worktree creation skips the symlink
-    // and shared-directory passes entirely, so a remote worktree never has one.
-    return (await provider.getStatus(repoPath)).entries.length > 0
-  }
+  requireReachableGitRoute(executionHostId)
   // Why: `-z` keeps paths raw so the shared-link comparison below can't be
   // defeated by Git quoting a path with spaces or non-ASCII bytes.
   const { stdout } = await gitExecFileAsync(['status', '--porcelain', '-z'], {
@@ -268,7 +252,7 @@ export async function hasUncommittedChanges(
   if (records.length === 0) {
     return false
   }
-  return await anyRecordIsUserDirt(repoPath, records, options.sharedLinkPaths ?? [])
+  return await anyRecordIsUserDirt(repoPath, records, options)
 }
 
 /** True when any record is real user work rather than a shared symlink Orca put
@@ -280,36 +264,29 @@ export async function hasUncommittedChanges(
 async function anyRecordIsUserDirt(
   worktreePath: string,
   records: readonly PorcelainV1Record[],
-  sharedLinkPaths: readonly string[]
+  options: HostedReviewExecutionOptions
 ): Promise<boolean> {
+  const sharedLinkPaths = options.sharedLinkPaths ?? []
   if (sharedLinkPaths.length === 0 || !records.some((record) => record.xy === '??')) {
     return true
   }
   // Why: only entries that are configured AND really symlinks are excluded, so a
   // regular file the user created at a configured name still blocks creation.
-  const sharedLinks = new Set(await findExistingWorktreeSymlinkPaths(worktreePath, sharedLinkPaths))
+  // Why the distro: git ran in the guest, so an untranslated lstat fails here and this
+  // fail-closed check would block review creation over Orca's own symlink.
+  const sharedLinks = new Set(
+    await findExistingWorktreeSymlinkPaths(worktreePath, sharedLinkPaths, {
+      wslDistro: getHostedReviewLocalGitOptions(options).wslDistro
+    })
+  )
   return records.some((record) => record.xy !== '??' || !sharedLinks.has(record.path))
 }
 
 export async function getHostedReviewUpstreamStatus(
   repoPath: string,
-  connectionId?: string | null,
+  executionHostId: ExecutionHostId,
   options: HostedReviewExecutionOptions = {}
 ): Promise<GitUpstreamStatus> {
-  if (!connectionId) {
-    return getUpstreamStatus(repoPath, undefined, getHostedReviewLocalGitOptions(options))
-  }
-  const provider = getSshGitProvider(connectionId)
-  if (!provider) {
-    throw new Error('Remote connection dropped. Click Reconnect on the SSH target before retrying.')
-  }
-  try {
-    // Why: the relay blocks generic git.exec, so use its dedicated upstream RPC for SSH divergence.
-    return await provider.getUpstreamStatus(repoPath)
-  } catch (error) {
-    if (isNoUpstreamError(error)) {
-      return { hasUpstream: false, ahead: 0, behind: 0 }
-    }
-    throw new Error(normalizeGitErrorMessage(error, 'upstream'))
-  }
+  requireReachableGitRoute(executionHostId)
+  return getUpstreamStatus(repoPath, undefined, getHostedReviewLocalGitOptions(options))
 }

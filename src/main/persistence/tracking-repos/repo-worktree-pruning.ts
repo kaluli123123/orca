@@ -2,7 +2,11 @@ import type { WorkspaceKey } from '../../../shared/folder-workspace-types'
 import { LOCAL_EXECUTION_HOST_ID, type ExecutionHostId } from '../../../shared/execution-host'
 import { parseWorkspaceKey } from '../../../shared/workspace-scope'
 import type { PersistedState } from '../../../shared/persisted-state-types'
-import { removeWorkspaceSessionOwners } from '../restoring-sessions/session-owner-removal'
+import type { WorkspaceSessionState } from '../../../shared/workspace-session-state-types'
+import {
+  removeWorkspaceSessionOwners,
+  withoutWslMoveFrozenOwners
+} from '../restoring-sessions/session-owner-removal'
 import {
   getExecutionHostIdFromWorktreeHostIdentity,
   getWorktreeIdFromHostIdentity,
@@ -58,10 +62,31 @@ export function pruneWorktreeStateForRepo(
       }
     }
   }
-  collectPrefixedKeys(Object.keys(state.worktreeMeta))
-  collectPrefixedKeys(Object.keys(state.workspaceSession?.lastVisitedAtByWorktreeId ?? {}))
-  for (const session of Object.values(state.workspaceSessionsByHostId ?? {})) {
+  // Why the pane-keyed records contribute owner keys: they are pruned by the worktreeId they name,
+  // not by their own key, so a worktree with no meta and no visit row would otherwise keep its
+  // sleeping agents and tombstones forever -- and keep re-seeding the orphan sweep every load.
+  const collectScannedRecordOwners = (session: WorkspaceSessionState | undefined): void => {
     collectPrefixedKeys(Object.keys(session?.lastVisitedAtByWorktreeId ?? {}))
+    collectPrefixedKeys(
+      Object.values(session?.sleepingAgentSessionsByPaneKey ?? {}).map(
+        (record) => record.worktreeId
+      )
+    )
+    collectPrefixedKeys(
+      Object.values(session?.terminalSurfaceTombstonesByPaneKey ?? {}).map(
+        (tombstone) => tombstone.worktreeId
+      )
+    )
+    collectPrefixedKeys(
+      Object.values(session?.closedTerminalTabTombstonesByTabId ?? {}).map(
+        (record) => record.worktreeId
+      )
+    )
+  }
+  collectPrefixedKeys(Object.keys(state.worktreeMeta))
+  collectScannedRecordOwners(state.workspaceSession)
+  for (const session of Object.values(state.workspaceSessionsByHostId ?? {})) {
+    collectScannedRecordOwners(session)
   }
 
   for (const key of Object.keys(state.worktreeMeta)) {
@@ -83,7 +108,10 @@ export function pruneWorktreeStateForRepo(
   const pruneLegacyLocalSession = hostId === null || hostId === LOCAL_EXECUTION_HOST_ID
   const pruneAllHostPartitions = hostId === null
   if (pruneLegacyLocalSession) {
-    state.workspaceSession = removeWorkspaceSessionOwners(state.workspaceSession, ownerKeysToPrune)!
+    state.workspaceSession = removeWorkspaceSessionOwners(
+      state.workspaceSession,
+      withoutWslMoveFrozenOwners(ownerKeysToPrune)
+    )!
   }
   if (state.workspaceSessionsByHostId) {
     for (const [partitionHostId, session] of Object.entries(state.workspaceSessionsByHostId)) {

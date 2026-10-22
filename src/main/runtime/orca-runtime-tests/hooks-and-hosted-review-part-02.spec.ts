@@ -19,7 +19,6 @@ import {
   getPRForBranchOutcomeMock,
   listWorktrees,
   mergeGitHubPRMock,
-  registerSshGitProvider,
   removeGitHubPRReviewersMock,
   requestGitHubPRReviewersMock,
   rerunGitHubPRChecksMock,
@@ -27,12 +26,16 @@ import {
   setGitHubPRAutoMergeMock,
   setGitHubPRFileViewedMock,
   setPlatform,
-  unregisterSshGitProvider,
   updateGitHubPRDetailsMock,
   updateGitHubPRStateMock,
   updateGitHubPRTitleMock
 } from '../orca-runtime-test-mocks.spec'
-import { TEST_REPO_ID, TEST_REPO_PATH, store } from '../orca-runtime-test-fixtures.spec'
+import {
+  TEST_REPO_ID,
+  TEST_REPO_PATH,
+  makeWorktreeMeta,
+  store
+} from '../orca-runtime-test-fixtures.spec'
 
 describe('OrcaRuntimeService', () => {
   it('routes runtime GitHub PR details and actions through the selected WSL project runtime', async () => {
@@ -433,7 +436,7 @@ describe('OrcaRuntimeService', () => {
     expect(getHostedReviewCreationEligibilityMock).toHaveBeenCalledWith(
       expect.objectContaining({
         repoPath: '/remote/repo',
-        connectionId: 'ssh-1',
+        executionHostId: 'ssh:ssh-1',
         branch: 'feature/ssh'
       })
     )
@@ -444,7 +447,7 @@ describe('OrcaRuntimeService', () => {
         head: 'feature/ssh',
         title: 'Feature SSH'
       }),
-      'ssh-1',
+      'ssh:ssh-1',
       { localGitExecOptions: { admissionTier: 'interactive' } }
     )
     expect(createStackedHostedReviewMock).toHaveBeenCalledWith(
@@ -454,7 +457,7 @@ describe('OrcaRuntimeService', () => {
         base: 'stack/parent',
         head: 'feature/ssh'
       }),
-      'ssh-1',
+      'ssh:ssh-1',
       { localGitExecOptions: { admissionTier: 'interactive' } }
     )
   })
@@ -532,7 +535,7 @@ describe('OrcaRuntimeService', () => {
     expect(getHostedReviewCreationEligibilityMock).toHaveBeenCalledWith(
       expect.objectContaining({
         repoPath: TEST_REPO_PATH,
-        connectionId: null,
+        executionHostId: 'local',
         branch: 'feature/wsl',
         localGitExecOptions: { wslDistro: 'Ubuntu', admissionTier: 'interactive' }
       })
@@ -540,7 +543,7 @@ describe('OrcaRuntimeService', () => {
     expect(getHostedReviewForBranchMock).toHaveBeenCalledWith(
       expect.objectContaining({
         repoPath: TEST_REPO_PATH,
-        connectionId: null,
+        executionHostId: 'local',
         branch: 'feature/wsl',
         linkedGitHubPR: 76,
         localGitExecOptions: { wslDistro: 'Ubuntu', admissionTier: 'background' }
@@ -553,7 +556,7 @@ describe('OrcaRuntimeService', () => {
         head: 'feature/wsl',
         title: 'Feature WSL'
       }),
-      null,
+      'local',
       { localGitExecOptions: { wslDistro: 'Ubuntu', admissionTier: 'interactive' } }
     )
     expect(createStackedHostedReviewMock).toHaveBeenCalledWith(
@@ -563,7 +566,7 @@ describe('OrcaRuntimeService', () => {
         base: 'stack/parent',
         head: 'feature/wsl'
       }),
-      null,
+      'local',
       { localGitExecOptions: { wslDistro: 'Ubuntu', admissionTier: 'interactive' } }
     )
   })
@@ -583,29 +586,16 @@ describe('OrcaRuntimeService', () => {
           connectionId: 'ssh-1'
         }
       ],
+      // Why: this process serves no SSH git, so the SSH repo resolves from its stored rows.
+      getAllWorktreeMeta: () => ({
+        [`${TEST_REPO_ID}::/remote/repo`]: makeWorktreeMeta()
+      }),
       getWorktreeMeta: () => null
     }
-    const gitProvider = {
-      listWorktrees: vi.fn().mockResolvedValue([
-        {
-          path: '/remote/repo',
-          head: 'abc',
-          branch: 'feature/foo',
-          isBare: false,
-          isMainWorktree: true
-        }
-      ])
-    }
-    registerSshGitProvider('ssh-1', gitProvider as never)
     const runtime = new OrcaRuntimeService(remoteStore as never)
 
-    try {
-      await expect(runtime.probeWorktreeDrift('path:/remote/repo')).resolves.toBeNull()
-    } finally {
-      unregisterSshGitProvider('ssh-1')
-    }
+    await expect(runtime.probeWorktreeDrift('path:/remote/repo')).resolves.toBeNull()
 
-    expect(gitProvider.listWorktrees).toHaveBeenCalledWith('/remote/repo')
     expect(getBaseRefDefault).not.toHaveBeenCalled()
     expect(listWorktrees).not.toHaveBeenCalled()
   })

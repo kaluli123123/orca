@@ -11,6 +11,7 @@ import {
 } from './command-code-prompt-text'
 import { stripTerminalControl } from './terminal-control-stripping'
 import { escapeRegex } from './string-utils'
+import { ownRetainedString } from './own-retained-string'
 
 export { stripTerminalControl } from './terminal-control-stripping'
 
@@ -108,7 +109,7 @@ const ACTIVE_LLM_STATUS_RE = new RegExp(
 const ACTIVE_EXECUTION_STATUS_RE = new RegExp(
   `(?:^|[\\r\\n])\\s*(?:${COMMAND_CODE_STATUS_GLYPH_RE_SOURCE}\\s*)?(?:Executing:\\s+\\S|Running\\s*\\()`
 )
-const IDLE_PROMPT_RE = /(?:^|[\r\n])\s*[❯>]\s+Ask your question\.\.\./
+const IDLE_PROMPT_RE = /(?:^|[\r\n])\s*[\u276F>]\s+Ask your question\.\.\./
 const SEMVER_NUMBER_RE_SOURCE = '(?:0|[1-9]\\d*)'
 const SEMVER_PRERELEASE_IDENTIFIER_RE_SOURCE = '(?:0|[1-9]\\d*|\\d*[A-Za-z-][0-9A-Za-z-]*)'
 const SEMVER_BUILD_IDENTIFIER_RE_SOURCE = '[0-9A-Za-z-]+'
@@ -142,9 +143,24 @@ function rawTextMayContainCommandCodeBanner(rawText: string): boolean {
   return rawText.includes('C') && rawText.includes('o') && rawText.includes('d')
 }
 
+// COMMAND_CODE_BANNER_RE requires a literal '#', and stripTerminalControl only ever removes
+// characters, so raw bytes without one cannot produce a banner match.
+const BANNER_REQUIRED_RAW_CHAR = '#'
+
+/**
+ * Prefilter run against the raw chunk before the scan windows are built. Testing the whole carry
+ * plus chunk over-admits relative to the window test (the windows drop middle content), so it can
+ * never turn a match into a miss.
+ */
+function rawChunkMayContainCommandCodeBanner(previousRawText: string, data: string): boolean {
+  return (
+    data.includes(BANNER_REQUIRED_RAW_CHAR) || previousRawText.includes(BANNER_REQUIRED_RAW_CHAR)
+  )
+}
+
 function appendRecentRawText(previousRawText: string, data: string): string {
   if (data.length >= RECENT_TEXT_LIMIT) {
-    return data.slice(-RECENT_TEXT_LIMIT)
+    return ownRetainedString(data.slice(-RECENT_TEXT_LIMIT))
   }
   return (previousRawText + data).slice(-RECENT_TEXT_LIMIT)
 }
@@ -233,6 +249,11 @@ export function createCommandCodeOutputStatusDetector(args: {
     observe(data: string): boolean {
       const previousRawText = recentRawText
       recentRawText = appendRecentRawText(previousRawText, data)
+      // Why before the windows: a non-Command-Code pane pays two ~4KB string builds per chunk
+      // otherwise, only to fail the same prefilter a few lines later.
+      if (!hasSeenCommandCodeUi && !rawChunkMayContainCommandCodeBanner(previousRawText, data)) {
+        return false
+      }
       const scanRawText = buildStatusScanRawText(previousRawText, data)
       const scanRawTextWithChunkBoundary = previousRawText
         ? buildStatusScanRawText(`${previousRawText}\n`, data)
@@ -270,7 +291,9 @@ export function createCommandCodeOutputStatusDetector(args: {
         combinedTextWithChunkBoundary: scanTextWithChunkBoundary,
         previousTextWithChunkBoundaryLength
       }
-      for (const promptMatch of scanText.matchAll(/(?:^|[\r\n])\s*[❯>]\s+([^\r\n]+)(?=[\r\n])/g)) {
+      for (const promptMatch of scanText.matchAll(
+        /(?:^|[\r\n])\s*[\u276F>]\s+([^\r\n]+)(?=[\r\n])/g
+      )) {
         const prompt = cleanPromptCandidate(promptMatch[1] ?? '')
         if (prompt && !isIdlePromptCandidate(prompt)) {
           lastSubmittedPrompt = prompt

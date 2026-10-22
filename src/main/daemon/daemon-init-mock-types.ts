@@ -8,6 +8,7 @@ export type MockSpawner = {
   shutdown: Mock
   getHandle: Mock
   launcher: unknown
+  staleDaemonRecycleVersion: string | null
 }
 
 /** Fake DaemonPtyAdapter instance every mocked `new DaemonPtyAdapter()` records. */
@@ -31,6 +32,7 @@ export type MockAdapter = {
   shutdown: Mock
   dispose: Mock
   disconnectOnly: Mock
+  hasRetiredForIdle: Mock
   onData: Mock
   onExit: Mock
   // Why: the router calls onData/onExit on each adapter; the stub returns a no-op unsubscribe so router subscription doesn't explode.
@@ -40,6 +42,7 @@ export type MockAdapter = {
 export type MockSpawnerConstructor = new (opts: {
   runtimeDir: string
   launcher: unknown
+  staleDaemonRecycleVersion?: string | null
 }) => MockSpawner
 
 export type MockAdapterConstructor = new (opts: MockAdapter['options']) => MockAdapter
@@ -47,6 +50,8 @@ export type MockAdapterConstructor = new (opts: MockAdapter['options']) => MockA
 /** Handle the fake spawner hands back from ensureRunning/getHandle. */
 export type MockSpawnerHandle = {
   mode?: 'degraded-new-pty-fallback'
+  quarantine?: 'host-image-severed'
+  adopted?: true
   releaseAdoptionLease?: () => void
   shutdown: () => Promise<void>
 }
@@ -95,6 +100,8 @@ export type EnsureRunningOverride = () => Promise<{
   socketPath: string
   tokenPath: string
   mode?: 'degraded-new-pty-fallback'
+  quarantine?: 'host-image-severed'
+  adopted?: true
 }>
 
 /** Every stub daemon-init's suites share, plus the control knobs they mutate per test. */
@@ -143,6 +150,7 @@ export type DaemonInitMockState = {
   rebindLocalProviderListenersMock: Mock<(...args: unknown[]) => void>
   trackDaemonReplacedMock: Mock<(...args: unknown[]) => void>
   trackDaemonRetiredMock: Mock<(...args: unknown[]) => void>
+  trackDaemonAdoptedMock: Mock<(...args: unknown[]) => void>
 }
 
 /** net.connect stubs the suites install in beforeEach. */

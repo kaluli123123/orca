@@ -40,11 +40,16 @@ export abstract class RemoteRuntimeTerminalFlowController extends RemoteRuntimeT
     return this.streams.get(stream.streamId) === stream
   }
 
-  protected sendInput(stream: RemoteRuntimeMultiplexedTerminalState, text: string): boolean {
+  protected sendInput(
+    stream: RemoteRuntimeMultiplexedTerminalState,
+    text: string,
+    inputSeq?: number
+  ): boolean {
     const sent = this.sendFrame(
       stream.streamId,
       TerminalStreamOpcode.Input,
-      encodeTerminalStreamText(text)
+      encodeTerminalStreamText(text),
+      stream.supportsInputAck ? inputSeq : undefined
     )
     if (sent && !stream.outputPaused) {
       stream.watchdog.recordCommandInput(text)
@@ -56,7 +61,7 @@ export abstract class RemoteRuntimeTerminalFlowController extends RemoteRuntimeT
     stream: RemoteRuntimeMultiplexedTerminalState,
     paused: boolean
   ): boolean {
-    if (!stream.supportsOutputPause || this.streams.get(stream.streamId) !== stream) {
+    if (!stream.supportsOutputPause || !this.isRegisteredStream(stream)) {
       return false
     }
     if (stream.outputPaused === paused) {
@@ -77,27 +82,46 @@ export abstract class RemoteRuntimeTerminalFlowController extends RemoteRuntimeT
     stream: RemoteRuntimeMultiplexedTerminalState,
     bytes: number
   ): boolean {
-    if (this.streams.get(stream.streamId) !== stream) {
+    if (!this.isRegisteredStream(stream)) {
       return true
     }
     stream.pendingAckBytes += bytes
     if (stream.pendingAckBytes >= TERMINAL_MULTIPLEX_ACK_BATCH_BYTES) {
       return this.flushOutputAcknowledgement(stream)
     }
-    if (stream.ackFlushTimer === null) {
-      stream.ackFlushTimer = setTimeout(() => {
-        stream.ackFlushTimer = null
-        this.flushOutputAcknowledgement(stream)
-      }, TERMINAL_MULTIPLEX_ACK_FLUSH_MS)
-    }
+    this.scheduleOutputAcknowledgementFlush(stream)
     return true
+  }
+
+  private scheduleOutputAcknowledgementFlush(stream: RemoteRuntimeMultiplexedTerminalState): void {
+    if (stream.ackFlushTimer !== null) {
+      return
+    }
+    stream.ackFlushTimer = setTimeout(() => {
+      stream.ackFlushTimer = null
+      this.flushOutputAcknowledgement(stream)
+    }, TERMINAL_MULTIPLEX_ACK_FLUSH_MS)
   }
 
   private flushOutputAcknowledgement(stream: RemoteRuntimeMultiplexedTerminalState): boolean {
     clearAckFlushTimer(stream)
     const bytes = stream.pendingAckBytes
+    if (bytes <= 0) {
+      return true
+    }
     stream.pendingAckBytes = 0
-    return bytes <= 0 || this.acknowledgeOutput(stream, bytes)
+    if (this.acknowledgeOutput(stream, bytes)) {
+      // Why: only a frame the transport took reopens the host's send window.
+      stream.watchdog.recordOutputAcknowledged(bytes)
+      return true
+    }
+    // Why guarded: a failed send may have torn the stream down, and re-charging a dropped stream reschedules itself forever.
+    if (this.isRegisteredStream(stream)) {
+      // Why re-charged: dropping an unsent ack shrinks the host window for the stream's life, and the only retry trigger is the output that shrunken window blocks.
+      stream.pendingAckBytes += bytes
+      this.scheduleOutputAcknowledgementFlush(stream)
+    }
+    return false
   }
 
   getStreamsForE2e(): Iterable<RemoteRuntimeMultiplexedTerminalState> {

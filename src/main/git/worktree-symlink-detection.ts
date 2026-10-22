@@ -1,5 +1,6 @@
 import { lstat } from 'node:fs/promises'
-import { resolve } from 'node:path'
+import { resolve, sep } from 'node:path'
+import { resolveWorktreeHostPath } from '../../shared/git-metadata-path'
 
 // Why this is a leaf module rather than part of ipc/worktree-symlinks: status
 // and review-creation need only the read-only "is this a symlink" question, and
@@ -23,19 +24,42 @@ export function getSafeRelativePath(rawPath: string): SafeRelativePathResult {
   // Why: split on both separators so a Windows-authored `..\escape` is
   // rejected the same way POSIX `../escape` is; the split catches relative
   // backslash traversal that `.split('/')` would otherwise miss.
-  // Why the drive check runs on every host: the same entry — per-user Shared
-  // Paths setting or repo `orca.yaml` — is evaluated on every host Orca runs
-  // on, so the verdict must not depend on which one is asking.
-  if (!rel || WINDOWS_DRIVE_DESIGNATOR.test(rel) || rel.split(/[\\/]/).includes('..')) {
+  // Why the drive check runs on every host, past `.` segments: the same entry — per-user
+  // Shared Paths setting or repo `orca.yaml` — is evaluated on every host Orca runs on, so
+  // the verdict must not depend on which one is asking, and `./C:x` is still `C:x`.
+  const segments = rel.split(/[\\/]/).filter((segment) => segment !== '' && segment !== '.')
+  if (
+    segments.length === 0 ||
+    WINDOWS_DRIVE_DESIGNATOR.test(segments[0]) ||
+    segments.includes('..')
+  ) {
     return { safe: false }
   }
-  return { safe: true, rel }
+  // Why: callers match `rel` against git's output, which never spells `./x`, `x/` or `a//b`.
+  // Split only on separators this host's `resolve` honours, so `rel` names what lstat probes.
+  const gitRel =
+    sep === '\\'
+      ? segments.join('/')
+      : rel
+          .split('/')
+          .filter((segment) => segment !== '' && segment !== '.')
+          .join('/')
+  return gitRel ? { safe: true, rel: gitRel } : { safe: false }
+}
+
+export type WorktreeSymlinkDetectionOptions = {
+  /** Distro that spelled `worktreePath`, for a Windows host reopening a guest path. */
+  wslDistro?: string
 }
 
 export async function findExistingWorktreeSymlinkPaths(
   worktreePath: string,
-  paths: readonly string[]
+  paths: readonly string[],
+  options: WorktreeSymlinkDetectionOptions = {}
 ): Promise<string[]> {
+  // Why: git in a WSL distro reports the worktree in the guest namespace, but this lstat runs in
+  // the Windows main process, where that spelling names nothing.
+  const hostWorktreePath = resolveWorktreeHostPath(worktreePath, options) ?? worktreePath
   const symlinkPaths: string[] = []
   for (const rawPath of paths) {
     const safePath = getSafeRelativePath(rawPath)
@@ -43,7 +67,7 @@ export async function findExistingWorktreeSymlinkPaths(
       continue
     }
     try {
-      if ((await lstat(resolve(worktreePath, safePath.rel))).isSymbolicLink()) {
+      if ((await lstat(resolve(hostWorktreePath, safePath.rel))).isSymbolicLink()) {
         symlinkPaths.push(safePath.rel)
       }
     } catch {

@@ -8,9 +8,11 @@ import {
 } from '@/hooks/useVirtualizedScrollAnchor'
 import { getVirtualizedScrollAnchorForOffset } from '@/hooks/virtualized-scroll-anchor-recording'
 import type { ProgrammaticScrollMarks } from '@/hooks/programmatic-scroll-marks'
-import { setWithLRU } from '@/lib/scroll-cache'
 import type { DiffSection } from '../../diff-section-types'
-import { combinedDiffScrollAnchorCache } from '../remember-view/combined-diff-view-memory'
+import {
+  rememberCombinedDiffView,
+  type CombinedDiffViewLease
+} from '../remember-view/combined-diff-view-cache'
 
 export type CombinedDiffScrollAnchors = {
   persistScrollAnchor: (refreshDomAnchor?: boolean) => void
@@ -29,11 +31,13 @@ export function useCombinedDiffScrollAnchors({
   scrollAnchorRef,
   scrollContainerRef,
   scrollOffsetRef,
+  sectionIndexByKey,
   sections,
   sectionsRef,
   sideBySide,
+  structureRevision,
   totalSize,
-  viewStateKey,
+  memoryLeaseRef,
   virtualizer
 }: {
   clampRestoreCount: number
@@ -44,11 +48,13 @@ export function useCombinedDiffScrollAnchors({
   scrollAnchorRef: React.RefObject<VirtualizedScrollAnchor>
   scrollContainerRef: React.RefObject<HTMLDivElement | null>
   scrollOffsetRef: React.RefObject<number>
+  sectionIndexByKey: ReadonlyMap<string, number>
   sections: DiffSection[]
   sectionsRef: React.RefObject<DiffSection[]>
   sideBySide: boolean
+  structureRevision: number
   totalSize: number
-  viewStateKey: string
+  memoryLeaseRef: React.RefObject<CombinedDiffViewLease | null>
   virtualizer: Virtualizer<HTMLDivElement, Element>
 }): CombinedDiffScrollAnchors {
   const getCombinedDiffSectionKey = useCallback((section: DiffSection): string => section.key, [])
@@ -116,13 +122,10 @@ export function useCombinedDiffScrollAnchors({
     return true
   }, [latestDomScrollAnchorRef, scrollAnchorRef, scrollContainerRef])
   const writeScrollAnchor = useCallback((): void => {
-    const anchor = scrollAnchorRef.current
-    if (anchor) {
-      setWithLRU(combinedDiffScrollAnchorCache, viewStateKey, anchor)
-    } else {
-      combinedDiffScrollAnchorCache.delete(viewStateKey)
-    }
-  }, [scrollAnchorRef, viewStateKey])
+    rememberCombinedDiffView(memoryLeaseRef.current, {
+      scrollAnchor: scrollAnchorRef.current ?? undefined
+    })
+  }, [memoryLeaseRef, scrollAnchorRef])
   const persistScrollAnchor = useCallback(
     (refreshDomAnchor = true): void => {
       if (refreshDomAnchor) {
@@ -138,13 +141,10 @@ export function useCombinedDiffScrollAnchors({
     () =>
       // Why: a single-section reload drops that row's measured height, so it shifts rows
       // below it — still a structural change even though `generation` no longer moves.
-      `${generation}|${sideBySide ? 'sbs' : 'inline'}|${clampRestoreCount}|${sections
-        .map(
-          (section) =>
-            `${section.key}:${section.collapsed ? 'c' : 'e'}:${section.contentGeneration ?? 0}`
-        )
-        .join(',')}`,
-    [clampRestoreCount, generation, sections, sideBySide]
+      // structureRevision moves iff a section key/collapsed/contentGeneration moved, so this is
+      // the same signal the per-section join produced without rebuilding it once per load.
+      `${generation}|${sideBySide ? 'sbs' : 'inline'}|${clampRestoreCount}|${structureRevision}`,
+    [clampRestoreCount, generation, sideBySide, structureRevision]
   )
 
   useVirtualizedScrollAnchor({
@@ -157,6 +157,7 @@ export function useCombinedDiffScrollAnchors({
     recordAnchorOnCleanup: false,
     recordAnchorOnScroll: false,
     restoreSignal: combinedDiffRestoreSignal,
+    rowIndexByKey: sectionIndexByKey,
     rows: sections,
     scrollElementRef: scrollContainerRef,
     shouldSkipRestore: hasDirectScrollInput,

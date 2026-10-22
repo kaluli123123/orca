@@ -1,10 +1,12 @@
 // @vitest-environment happy-dom
 
+import type * as ShortcutLabelModule from '@/hooks/useShortcutLabel'
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { I18nextProvider } from 'react-i18next'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { i18n } from '@/i18n/i18n'
+import { resetRendererAppPlatformCacheForTests } from '@/lib/renderer-app-platform'
 import { getDefaultSettings } from '../../../../shared/constants'
 import type { GlobalSettings } from '../../../../shared/global-settings-types'
 import type { StatusBarItem } from '../../../../shared/ui-chrome-types'
@@ -35,7 +37,8 @@ vi.mock('../../store', () => ({
   useAppStore: (selector: (state: typeof mocks.state) => unknown) => selector(mocks.state)
 }))
 
-vi.mock('@/hooks/useShortcutLabel', () => ({
+vi.mock('@/hooks/useShortcutLabel', async (importOriginal) => ({
+  ...(await importOriginal<typeof ShortcutLabelModule>()),
   useShortcutKeyComboDetails: () => []
 }))
 
@@ -197,7 +200,7 @@ async function rerenderAppearancePane(
 
 function appearanceSectionToggle(
   container: HTMLElement,
-  sectionId: 'interface' | 'terminal' | 'window'
+  sectionId: 'interface' | 'terminal' | 'chat' | 'window'
 ): HTMLButtonElement | undefined {
   return Array.from(container.querySelectorAll<HTMLButtonElement>('button[aria-expanded]')).find(
     (button) => button.getAttribute('aria-controls') === `appearance-section-${sectionId}`
@@ -216,6 +219,7 @@ describe('AppearancePane', () => {
 
   beforeEach(() => {
     vi.clearAllMocks()
+    resetRendererAppPlatformCacheForTests()
     mocks.state.availableStatusBarToggles = []
     mocks.state.appPlatform = 'linux'
     mocks.state.settingsSearchQuery = 'automations'
@@ -238,6 +242,15 @@ describe('AppearancePane', () => {
 
   afterEach(() => {
     delete (window as unknown as { api?: unknown }).api
+  })
+
+  it('keeps chat appearance controls out of the Appearance pane', async () => {
+    mocks.state.settingsSearchQuery = ''
+    const container = await renderAppearancePane({
+      ...getDefaultSettings('/tmp')
+    })
+    expect(appearanceSectionToggle(container, 'chat')).toBeUndefined()
+    expect(container.textContent).not.toContain('Reset chat appearance')
   })
 
   it('shows language as a primary interface control without opening Advanced', async () => {
@@ -272,7 +285,7 @@ describe('AppearancePane', () => {
     ).toBeNull()
   })
 
-  it('renders the language dropdown with system, english, chinese, korean, japanese, and spanish options', async () => {
+  it('renders the language dropdown with every built-in language option', async () => {
     mocks.state.settingsSearchQuery = 'language'
     const updateSettings = vi.fn()
     const settings = {
@@ -287,9 +300,13 @@ describe('AppearancePane', () => {
     const chineseOption = container.querySelector<HTMLButtonElement>(
       '[data-slot="select-item"][data-value="zh"]'
     )
+    const portugueseOption = container.querySelector<HTMLButtonElement>(
+      '[data-slot="select-item"][data-value="pt"]'
+    )
 
     expect(languageTrigger).not.toBeNull()
     expect(chineseOption).not.toBeNull()
+    expect(portugueseOption).not.toBeNull()
     expect(container.textContent).not.toContain('Advanced')
     expect(container.textContent).toContain('System')
     expect(container.textContent).toContain('English')
@@ -297,6 +314,7 @@ describe('AppearancePane', () => {
     expect(container.textContent).toContain('한국어')
     expect(container.textContent).toContain('日本語')
     expect(container.textContent).toContain('Español')
+    expect(container.textContent).toContain('Português (Brasil)')
 
     await act(async () => {
       chineseOption?.dispatchEvent(new MouseEvent('click', { bubbles: true }))

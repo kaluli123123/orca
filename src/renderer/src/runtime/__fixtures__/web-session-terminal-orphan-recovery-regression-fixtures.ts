@@ -2,7 +2,7 @@ import type {
   RuntimeMobileSessionTabsResult,
   RuntimeMobileSessionTerminalClientTab
 } from '../../../../shared/runtime-types'
-import { toRemoteRuntimePtyId } from '../runtime-terminal-stream'
+import { toRemoteRuntimePtyId } from '../../../../shared/remote-runtime-pty-id'
 import type { TerminalOrphanRecoveryState } from '../web-session-terminal-orphan-recovery-surface'
 
 export const ENVIRONMENT_ID = 'remote-runtime'
@@ -96,7 +96,9 @@ export function listResult(
     totalCount: terminals.length,
     truncated: options.truncated ?? false,
     ...(options.hostScope === undefined
-      ? { hostScope: { hostIds: [ENVIRONMENT_ID], omittedHostIds: [] } }
+      ? // A host names the execution hosts it covered, not its own environment id: answering
+        // `terminal.list` on a paired runtime reports `local` (verified against a live runtime).
+        { hostScope: { hostIds: ['local'], omittedHostIds: [] } }
       : { hostScope: options.hostScope })
   }
 }

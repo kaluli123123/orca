@@ -1,5 +1,4 @@
 import type { Dispatch, DragEvent, MutableRefObject, RefObject, SetStateAction } from 'react'
-import type { BrowserGrabPayload } from '../../../../../shared/browser-grab-types'
 import {
   normalizeBrowserNavigationUrl,
   redactKagiSessionToken
@@ -40,24 +39,22 @@ export type AttachBrowserPageWebviewArgs = {
   activeLoadFailureRef: MutableRefObject<BrowserLoadError | null>
   recoveryNavigationValidationRef: MutableRefObject<BrowserPageRecoveryNavigationValidation | null>
   keepAddressBarFocusRef: MutableRefObject<boolean>
-  paneZoomLevelRef: MutableRefObject<number>
   viewportPresetIdRef: MutableRefObject<BrowserViewportPresetId | null>
   onUpdatePageStateRef: MutableRefObject<(tabId: string, updates: BrowserTabPageState) => void>
   setGuestRecoveryGeneration: Dispatch<SetStateAction<number>>
-  setBrowserZoomPercent: Dispatch<SetStateAction<number>>
   focusAddressBarNow: () => boolean
   syncNavigationState: (webview: Electron.WebviewTag) => void
   syncBrowserAnnotationViewportBridge: () => void
   faviconUrlRef: MutableRefObject<string | null>
   addressBarInputRef: RefObject<HTMLInputElement | null>
   lastKnownWebviewUrlRef: MutableRefObject<string | null>
-  trackNextLoadingEventRef: MutableRefObject<boolean>
-  clearBrowserPageAnnotationsRef: MutableRefObject<(pageId: string) => void>
+  invalidateBrowserAnnotationDocumentRef: MutableRefObject<() => void>
   onSetUrlRef: MutableRefObject<BrowserPageUrlSetter>
-  setPendingAnnotationPayload: Dispatch<SetStateAction<BrowserGrabPayload | null>>
   setBrowserOverlayViewport: Dispatch<SetStateAction<BrowserOverlayViewport>>
   setAddressBarValue: Dispatch<SetStateAction<string>>
-  addBrowserHistoryEntryRef: MutableRefObject<(url: string, title: string) => void>
+  addBrowserHistoryEntryRef: MutableRefObject<
+    (url: string, title: string, faviconUrl?: string | null) => void
+  >
   annotationViewportBridgeTokenRef: MutableRefObject<string>
   initialBrowserUrlRef: MutableRefObject<string>
   validateVisibleGuestRegistrationRef: MutableRefObject<() => void>
@@ -106,6 +103,7 @@ export function attachBrowserPageWebview(
   if (!container || !webviewContainer) {
     return
   }
+  args.invalidateBrowserAnnotationDocumentRef.current()
   const webview = ensuredWebview.webview
   const needsInitialNavigation = ensuredWebview.created
   seedLiveBrowserUrl(browserTabId, redactKagiSessionToken(browserTabUrlRef.current))

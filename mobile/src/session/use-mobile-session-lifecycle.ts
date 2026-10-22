@@ -1,4 +1,5 @@
-import { useEffect, useRef, useCallback } from 'react'
+import { settleSessionPreferenceRead } from './session-preference-read'
+import { useEffect, useRef, useCallback, useState } from 'react'
 import { AppState, type AppStateStatus, Platform } from 'react-native'
 import { useFocusEffect } from 'expo-router'
 import { loadHosts } from '../transport/host-store'
@@ -7,16 +8,17 @@ import {
   recoverActiveTerminalAfterForeground,
   shouldRecoverTerminalOnAppStateChange
 } from '../terminal/terminal-foreground-recovery'
-import { loadCustomKeys } from '../components/CustomKeyModal'
+import { loadCustomKeys } from '../terminal/terminal-custom-keys'
 import type { MobileSessionTabReconciliationModel } from './use-mobile-session-tab-reconciliation'
 
 export function useMobileSessionLifecycle(scope: MobileSessionTabReconciliationModel) {
+  const [customKeysLoaded, setCustomKeysLoaded] = useState(false)
+  const [accessoryLayoutLoaded, setAccessoryLayoutLoaded] = useState(false)
   const {
     hostId,
     connState,
     setCustomKeys,
     setVisibleBuiltInIds,
-    deviceTokenRef,
     setHostEndpoint,
     connStateRef,
     terminalRefs,
@@ -26,7 +28,7 @@ export function useMobileSessionLifecycle(scope: MobileSessionTabReconciliationM
     unsubscribeTerminal,
     subscribeToTerminal
   } = scope
-  // Why: read deviceToken from host record so code can pass client.id on subscribe/send for driver-state-machine identity.
+  // Why: the shared client owns authenticated identity; this host read only supplies connection-hint metadata.
   useEffect(() => {
     if (!hostId) {
       return
@@ -38,7 +40,6 @@ export function useMobileSessionLifecycle(scope: MobileSessionTabReconciliationM
       }
       const host = hosts.find((h) => h.id === hostId)
       if (host) {
-        deviceTokenRef.current = host.deviceToken
         setHostEndpoint(host.endpoint)
       }
     })
@@ -48,42 +49,51 @@ export function useMobileSessionLifecycle(scope: MobileSessionTabReconciliationM
   }, [hostId])
 
   useEffect(() => {
-    void loadCustomKeys().then(setCustomKeys)
-  }, [])
-
-  useFocusEffect(
-    useCallback(() => {
-      let stale = false
-      void loadTerminalAccessoryLayout().then((layout) => {
-        if (!stale) {
-          setVisibleBuiltInIds(layout.visibleBuiltInIds)
+    let active = true
+    void settleSessionPreferenceRead(loadCustomKeys()).then((keys) => {
+      if (active) {
+        if (keys) {
+          setCustomKeys(keys)
         }
-      })
-      return () => {
-        stale = true
-      }
-    }, [])
-  )
-
-  useEffect(() => {
-    let mounted = true
-    const refresh = () => {
-      void loadTerminalAccessoryLayout().then((layout) => {
-        if (mounted) {
-          setVisibleBuiltInIds(layout.visibleBuiltInIds)
-        }
-      })
-    }
-    const sub = AppState.addEventListener('change', (s: AppStateStatus) => {
-      if (s === 'active') {
-        refresh()
+        setCustomKeysLoaded(true)
       }
     })
     return () => {
-      mounted = false
-      sub.remove()
+      active = false
     }
   }, [])
+
+  const layoutReadRevisionRef = useRef(0)
+  const refreshAccessoryLayout = useCallback(() => {
+    const revision = ++layoutReadRevisionRef.current
+    void settleSessionPreferenceRead(loadTerminalAccessoryLayout()).then((layout) => {
+      if (layoutReadRevisionRef.current === revision) {
+        if (layout) {
+          setVisibleBuiltInIds(layout.visibleBuiltInIds)
+        }
+        setAccessoryLayoutLoaded(true)
+      }
+    })
+    return () => {
+      if (layoutReadRevisionRef.current === revision) {
+        layoutReadRevisionRef.current += 1
+      }
+    }
+  }, [])
+
+  useFocusEffect(refreshAccessoryLayout)
+
+  useEffect(() => {
+    const sub = AppState.addEventListener('change', (s: AppStateStatus) => {
+      if (s === 'active') {
+        refreshAccessoryLayout()
+      }
+    })
+    return () => {
+      layoutReadRevisionRef.current += 1
+      sub.remove()
+    }
+  }, [refreshAccessoryLayout])
 
   const pendingForegroundRecoveryRef = useRef(false)
   useEffect(() => {
@@ -138,6 +148,7 @@ export function useMobileSessionLifecycle(scope: MobileSessionTabReconciliationM
     })
   }, [connState, scheduleDelayedAction, subscribeToTerminal, unsubscribeTerminal])
   return {
+    accessoryPreferencesReady: customKeysLoaded && accessoryLayoutLoaded,
     pendingForegroundRecoveryRef
   }
 }

@@ -1,6 +1,6 @@
-import type { GlobalSettings } from '../../../../shared/global-settings-types'
 import { subscribeToPtyData } from '../terminal-pane/pty-data-sidecar-subscriptions'
-import { isRemoteRuntimePtyId, sendRuntimePtyInput } from '@/runtime/runtime-terminal-inspection'
+import { isRemoteRuntimePtyId } from '../../../../shared/remote-runtime-pty-id'
+import { sendRuntimePtyInput } from '@/runtime/runtime-terminal-inspection'
 import { subscribeToRuntimeTerminalData } from '@/runtime/runtime-terminal-stream'
 import { NATIVE_CHAT_SUBMIT } from './native-chat-send'
 import { stripScrollbackAnsi } from './native-chat-scrape-fallback'
@@ -10,7 +10,7 @@ const MAX_OBSERVED_BYTES = 64 * 1024
 
 type SubscribeToData = (watcher: (data: string) => void) => Promise<() => void> | (() => void)
 
-export type ClaudeModelSwitchOutcome = 'applied' | 'rejected' | 'interaction-required' | 'unknown'
+export type ClaudeModelSwitchOutcome = 'applied' | 'rejected' | 'unknown'
 
 export type ClaudeModelSwitchConfirmationObserver = {
   ready: Promise<void>
@@ -62,18 +62,8 @@ function hasClaudeModelSwitchRejection(buffer: string): boolean {
   return compactTerminalText(buffer).includes('keptmodelas')
 }
 
-function hasClaudeModelSwitchInteraction(buffer: string): boolean {
-  const text = compactTerminalText(buffer)
-  return (
-    text.includes('fable5usesusagecreditsandneedsaone-timeconsent') ||
-    text.includes('pickfablefrom/modelinaninteractivesessiontosetitup') ||
-    (text.includes('switchtofable5?') && text.includes('usagecredits'))
-  )
-}
-
 function subscribeToClaudeModelSwitchData(args: {
   ptyId: string
-  settings: Pick<GlobalSettings, 'activeRuntimeEnvironmentId'> | null | undefined
   subscribeToData?: SubscribeToData
   watcher: (data: string) => void
 }): Promise<() => void> | (() => void) {
@@ -82,7 +72,6 @@ function subscribeToClaudeModelSwitchData(args: {
   }
   if (isRemoteRuntimePtyId(args.ptyId)) {
     return subscribeToRuntimeTerminalData(
-      args.settings,
       args.ptyId,
       `desktop:native-chat-model-switch:${args.ptyId}`,
       args.watcher,
@@ -94,7 +83,6 @@ function subscribeToClaudeModelSwitchData(args: {
 
 export function createClaudeModelSwitchConfirmationObserver(args: {
   ptyId: string
-  settings: Pick<GlobalSettings, 'activeRuntimeEnvironmentId'> | null | undefined
   expectedModelLabel: string | null
   subscribeToData?: SubscribeToData
   submitConfirmation?: () => boolean | void
@@ -149,10 +137,6 @@ export function createClaudeModelSwitchConfirmationObserver(args: {
       finish('rejected')
       return
     }
-    if (hasClaudeModelSwitchInteraction(observed)) {
-      finish('interaction-required')
-      return
-    }
     if (!confirmationSubmitted && hasClaudeModelSwitchConfirmation(observed)) {
       confirmationSubmitted = true
       try {
@@ -160,7 +144,7 @@ export function createClaudeModelSwitchConfirmationObserver(args: {
         // exact Claude warning defaults to “Yes” and needs only one Enter.
         const accepted = args.submitConfirmation
           ? args.submitConfirmation() !== false
-          : sendRuntimePtyInput(args.settings, args.ptyId, NATIVE_CHAT_SUBMIT)
+          : sendRuntimePtyInput(args.ptyId, NATIVE_CHAT_SUBMIT, 'driving')
         if (!accepted) {
           finish('unknown')
           return
@@ -175,7 +159,6 @@ export function createClaudeModelSwitchConfirmationObserver(args: {
   try {
     const subscription = subscribeToClaudeModelSwitchData({
       ptyId: args.ptyId,
-      settings: args.settings,
       subscribeToData: args.subscribeToData,
       watcher: observeData
     })

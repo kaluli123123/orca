@@ -8,6 +8,7 @@ import {
 } from '../../../../shared/worktree/id'
 import type { GitWorktreeInfo } from '../../../../shared/worktree/types'
 import { isWslUncPath } from '../../../../shared/wsl-paths'
+import { agentHookServer } from '../../../agent-hooks/server'
 import type { Store } from '../../../persistence/loading-store/store'
 import type { NativeLocalWorktreeMetadataScanExpectation } from '../../../persistence/tracking-repos/missing-local-worktree-metadata-pruning'
 import { pruneWorkspaceCleanupScanSnapshots } from '../../../workspace-cleanup-scan-snapshot'
@@ -15,6 +16,7 @@ import { pruneWorkspaceSpaceAnalysisSnapshots } from '../../../workspace-space-a
 import { isLocalWorktreeScanGenerationCurrent } from '../../../local-worktree-scan-generation'
 import { localWorktreePathsExistOrAreUnverifiable } from '../../../local-worktree-path-presence'
 import { worktreeRetentionPathComparisonKey } from '../../../worktree-retention-path-comparison'
+import { isWslMoveRepoBlocked } from '../../../persistence/moving-wsl-projects/wsl-move-background-backoff'
 
 type AuthoritativeLocalMetadataPruneArgs = {
   store: Store
@@ -64,7 +66,9 @@ export async function pruneMetadataMissingFromAuthoritativeLocalScan({
   }
   const generationCurrent = () => isLocalWorktreeScanGenerationCurrent(repo.id, scanGeneration)
   const repoOwners = store.getRepos().filter((candidate) => candidate.id === repo.id)
+  // Mid-move a scan can miss paths that still exist; nothing is pruned until the move settles.
   if (
+    isWslMoveRepoBlocked(repo) ||
     !generationCurrent() ||
     !isCallerCurrent() ||
     gitWorktrees.length === 0 ||
@@ -85,7 +89,12 @@ export async function pruneMetadataMissingFromAuthoritativeLocalScan({
     worktreeRetentionPathComparisonKey(repo.path, platform),
     ...gitWorktrees.map((worktree) => worktreeRetentionPathComparisonKey(worktree.path, platform))
   ])
-  const probeCandidates = scan.metadata.flatMap((metadata) => {
+  // Why: only rows a delete could still accept are worth a filesystem probe. This is advisory —
+  // `pruneSessionlessMissingLocalWorktreeMetadataForRepo` re-checks authoritatively — so it can only
+  // ever shrink the `stat` fan-out, never widen what gets removed (#17775).
+  const removableCandidates =
+    store.selectProbeableLocalWorktreeMetadataCandidates?.(scan) ?? scan.metadata
+  const probeCandidates = removableCandidates.flatMap((metadata) => {
     const { worktreeId } = metadata
     const parsed = splitWorktreeId(worktreeId)
     const nativeAbsolute = parsed
@@ -118,7 +127,8 @@ export async function pruneMetadataMissingFromAuthoritativeLocalScan({
     return result([], generationCurrent())
   }
 
-  if (!generationCurrent() || !isCallerCurrent()) {
+  // The path probe awaits, so a move may have started since the entry check.
+  if (!generationCurrent() || !isCallerCurrent() || isWslMoveRepoBlocked(repo)) {
     return result([], generationCurrent())
   }
   const removedIds = store.pruneSessionlessMissingLocalWorktreeMetadataForRepo(
@@ -136,6 +146,9 @@ export async function pruneMetadataMissingFromAuthoritativeLocalScan({
     }))
     void pruneWorkspaceCleanupScanSnapshots(snapshotDirectory, targets)
     void pruneWorkspaceSpaceAnalysisSnapshots(snapshotDirectory, targets)
+    for (const worktreeId of removedIds) {
+      agentHookServer.dropStatusEntriesForRemovedWorktree(worktreeId, LOCAL_EXECUTION_HOST_ID)
+    }
   }
   return result(removedIds, generationCurrent())
 }

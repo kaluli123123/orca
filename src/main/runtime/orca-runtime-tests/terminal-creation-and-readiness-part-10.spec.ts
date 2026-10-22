@@ -1,9 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
-import {
-  OrcaRuntimeService,
-  RpcDispatcher,
-  TERMINAL_METHODS
-} from '../orca-runtime-test-mocks.spec'
+import { OrcaRuntimeService } from '../orca-runtime-test-mocks.spec'
+import { RpcDispatcher, TERMINAL_METHODS } from '../orca-runtime-test-mocks/terminal-rpc.spec'
 import { makeRpcRequest, store, syncSinglePty } from '../orca-runtime-test-fixtures.spec'
 
 describe('OrcaRuntimeService', () => {
@@ -532,8 +529,7 @@ describe('OrcaRuntimeService', () => {
       draft: 'proceed with the release'
     })
     expect(serializeBuffer).toHaveBeenCalledWith('pty-1', {
-      scrollbackRows: 0,
-      altScreenForcesZeroRows: false
+      scrollbackRows: 0
     })
   })
 
@@ -595,8 +591,7 @@ describe('OrcaRuntimeService', () => {
 
     expect(read.tail).toEqual([''])
     expect(serializeBuffer).not.toHaveBeenCalledWith('pty-1', {
-      scrollbackRows: 0,
-      altScreenForcesZeroRows: false
+      scrollbackRows: 0
     })
   })
 
@@ -623,8 +618,7 @@ describe('OrcaRuntimeService', () => {
 
     expect(read.tail).toEqual(['', ''])
     expect(serializeBuffer).not.toHaveBeenCalledWith('pty-1', {
-      scrollbackRows: 0,
-      altScreenForcesZeroRows: false
+      scrollbackRows: 0
     })
   })
 })

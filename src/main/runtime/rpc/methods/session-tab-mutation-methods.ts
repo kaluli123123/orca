@@ -1,16 +1,22 @@
 import { resolveRuntimeNavigationTarget } from '../../../../shared/runtime-navigation'
 import type { OrcaRuntimeService } from '../../orca-runtime'
-import { defineMethod, type RpcAnyMethod } from '../core'
+import { defineMethod } from '../core'
 import {
   assertProjectedSessionTabVisible,
   translateProjectedSessionTabMove
 } from './session-tab-browser-placement-projection'
 import { projectSessionTabsForClient } from './session-tabs-inventory'
-import { ActivateTab, MoveTab, SetTabProps, UpdatePaneLayout } from './session-tabs-schemas'
+import {
+  ActivateTab,
+  MoveTab,
+  SetTabProps,
+  UpdatePaneLayout
+} from '../../../../shared/rpc-contract/session-tabs-schemas-params'
 
-export const SESSION_TAB_MUTATION_METHODS: RpcAnyMethod[] = [
+export const SESSION_TAB_MUTATION_METHODS = [
   defineMethod({
     name: 'session.tabs.activate',
+    permission: 'workspace',
     params: ActivateTab,
     handler: async (params, { runtime, clientKind, pairedDeviceId, clientCapabilities }) => {
       if (clientKind) {
@@ -36,11 +42,16 @@ export const SESSION_TAB_MUTATION_METHODS: RpcAnyMethod[] = [
           })
         }
       )
-      return projectSessionTabsForMutationClient(result, clientKind, clientCapabilities)
+      const projected = projectSessionTabsForMutationClient(result, clientKind, clientCapabilities)
+      // One reply's answer, outside the projection: the fallback is never part of the tab snapshot.
+      return result.startupCwdFallback
+        ? { ...projected, startupCwdFallback: result.startupCwdFallback }
+        : projected
     }
   }),
   defineMethod({
     name: 'session.tabs.move',
+    permission: 'workspace',
     params: MoveTab,
     handler: async (params, { runtime, pairedDeviceId, clientCapabilities, clientKind }) => {
       let translated: Parameters<typeof translateProjectedSessionTabMove>[2] = params
@@ -73,6 +84,7 @@ export const SESSION_TAB_MUTATION_METHODS: RpcAnyMethod[] = [
   }),
   defineMethod({
     name: 'session.tabs.updatePaneLayout',
+    permission: 'workspace',
     params: UpdatePaneLayout,
     handler: async (params, { runtime, pairedDeviceId, clientCapabilities, clientKind }) => {
       await assertVisibleMutationTab(
@@ -87,12 +99,15 @@ export const SESSION_TAB_MUTATION_METHODS: RpcAnyMethod[] = [
         tabId: params.tabId,
         root: params.root,
         expandedLeafId: params.expandedLeafId ?? null,
-        titlesByLeafId: params.titlesByLeafId
+        chatLeafId: params.chatLeafId,
+        titlesByLeafId: params.titlesByLeafId,
+        renamedLeafIds: params.renamedLeafIds
       })
     }
   }),
   defineMethod({
     name: 'session.tabs.setTabProps',
+    permission: 'workspace',
     params: SetTabProps,
     handler: async (params, { runtime, pairedDeviceId, clientCapabilities, clientKind }) => {
       await assertVisibleMutationTab(
@@ -107,7 +122,8 @@ export const SESSION_TAB_MUTATION_METHODS: RpcAnyMethod[] = [
         tabId: params.tabId,
         ...(params.color !== undefined ? { color: params.color } : {}),
         ...(params.isPinned !== undefined ? { isPinned: params.isPinned } : {}),
-        ...(params.viewMode !== undefined ? { viewMode: params.viewMode } : {})
+        ...(params.viewMode !== undefined ? { viewMode: params.viewMode } : {}),
+        ...(params.customTitle !== undefined ? { customTitle: params.customTitle } : {})
       })
     }
   })

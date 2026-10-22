@@ -1,3 +1,4 @@
+import { quotePosixShellDoubleQuotedApostrophe } from '../shared/shell-argument-quoting'
 import { statSync } from 'node:fs'
 import path from 'node:path'
 import type { LinuxRootPackageType } from '../shared/update-status-types'
@@ -26,11 +27,6 @@ export type LinuxPackageInstallCommandResult =
   | { ok: true; command: string }
   | { ok: false; reason: 'no-sudo' | 'no-package-manager' | 'invalid-package-path' }
 
-/** POSIX single-quoting: the only metacharacter left is `'`, closed and re-opened around a literal. */
-export function quoteForPosixShell(value: string): string {
-  return `'${value.split("'").join(`'"'"'`)}'`
-}
-
 /**
  * Resolves an executable strictly from the trusted system directories. A symlink inside those
  * directories is fine — its target is what `statSync` checks — but nothing outside them is consulted
@@ -50,6 +46,16 @@ export function resolveTrustedExecutable(name: string): string | null {
     }
   }
   return null
+}
+
+/**
+ * Whether this host has any package manager able to install the marker's format. A repackaged
+ * install (AUR, Nix, a container rebuild) inherits the `package-type` marker from the .deb/.rpm it
+ * was built from, so the marker alone never proves the host can act on it.
+ */
+export function hasTrustedPackageManagerFor(packageType: LinuxRootPackageType): boolean {
+  const candidates = packageType === 'deb' ? DEB_PACKAGE_MANAGERS : RPM_PACKAGE_MANAGERS
+  return candidates.some((candidate) => resolveTrustedExecutable(candidate.name) !== null)
 }
 
 /**
@@ -76,7 +82,12 @@ export function buildLinuxPackageInstallCommand(
       continue
     }
     // No -y/--noconfirm: the user must see and confirm the privileged transaction.
-    const tokens = [sudoPath, managerPath, ...candidate.args, quoteForPosixShell(packagePath)]
+    const tokens = [
+      sudoPath,
+      managerPath,
+      ...candidate.args,
+      quotePosixShellDoubleQuotedApostrophe(packagePath)
+    ]
     return { ok: true, command: tokens.join(' ') }
   }
   return { ok: false, reason: 'no-package-manager' }

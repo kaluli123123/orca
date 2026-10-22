@@ -10,6 +10,7 @@ import {
 } from './worktrees-test-module-mocks'
 import { handlers, mainWindow, setupWorktreeHandlers, store } from './worktrees-test-harness'
 import { createdWorktreeList } from './worktrees-test-fixtures'
+import { hostWorktreeTarget } from '../../shared/worktree/host-qualified-identity'
 
 vi.mock('electron', async () =>
   (await import('./worktrees-test-module-mocks')).electronModuleMock()
@@ -34,18 +35,11 @@ vi.mock('../github/client', async () =>
 vi.mock('../source-control/hosted-review', async () =>
   (await import('./worktrees-test-module-mocks')).hostedReviewModuleMock()
 )
-vi.mock('../providers/ssh-git-dispatch', async () =>
-  (await import('./worktrees-test-module-mocks')).sshGitDispatchModuleMock()
-)
 vi.mock('../providers/ssh-filesystem-dispatch', async () =>
   (await import('./worktrees-test-module-mocks')).sshFilesystemDispatchModuleMock()
 )
 vi.mock('./worktree-symlinks', async () =>
   (await import('./worktrees-test-module-mocks')).worktreeSymlinksModuleMock()
-)
-vi.mock('./ssh', async () => (await import('./worktrees-test-module-mocks')).sshModuleMock())
-vi.mock('../ssh/ssh-target-registry', async () =>
-  (await import('./worktrees-test-module-mocks')).sshTargetRegistryModuleMock()
 )
 vi.mock('../hooks', async () => (await import('./worktrees-test-module-mocks')).hooksModuleMock())
 vi.mock('../setup-runner-script-text', async (importOriginal) =>
@@ -91,7 +85,12 @@ vi.mock('../workspace-cleanup-removal-snapshot-prune', async () =>
 vi.mock('../runtime/worktree-teardown', async () =>
   (await import('./worktrees-test-module-mocks')).worktreeTeardownModuleMock()
 )
-vi.mock('./pty', async () => (await import('./worktrees-test-module-mocks')).ptyModuleMock())
+vi.mock('./pty/provider/registry', async () =>
+  (await import('./worktrees-test-module-mocks')).ptyRegistryModuleMock()
+)
+vi.mock('./pty/provider/state-cleanup', async () =>
+  (await import('./worktrees-test-module-mocks')).ptyStateCleanupModuleMock()
+)
 
 describe('registerWorktreeHandlers', () => {
   beforeEach(() => {
@@ -140,7 +139,9 @@ describe('registerWorktreeHandlers', () => {
       '/workspace/improve-dashboard',
       'improve-dashboard',
       'origin/main',
-      false
+      false,
+      false,
+      {}
     )
   })
 
@@ -205,14 +206,14 @@ describe('registerWorktreeHandlers', () => {
       }
     ])
 
-    const result = await handlers['worktrees:create'](null, {
+    const result = (await handlers['worktrees:create'](null, {
       repoId: 'repo-1',
       name: 'improve-dashboard',
       sparseCheckout: {
         directories: [' packages/web ', 'apps\\api\\', 'packages/web/'],
         presetId: 'preset-1'
       }
-    })
+    })) as { timing?: { preparedCheckout?: { status: string; reason?: string } } }
 
     expect(addWorktreeMock).not.toHaveBeenCalled()
     expect(addSparseWorktreeMock).toHaveBeenCalledWith(
@@ -221,10 +222,11 @@ describe('registerWorktreeHandlers', () => {
       'improve-dashboard',
       ['packages/web', 'apps/api'],
       'origin/main',
-      false
+      false,
+      {}
     )
     expect(store.setWorktreeMeta).toHaveBeenCalledWith(
-      'repo-1::/workspace/improve-dashboard',
+      hostWorktreeTarget({ id: 'repo-1::/workspace/improve-dashboard', hostId: 'local' }),
       expect.objectContaining({
         sparseDirectories: ['packages/web', 'apps/api'],
         sparseBaseRef: 'origin/main',
@@ -239,6 +241,11 @@ describe('registerWorktreeHandlers', () => {
         sparseBaseRef: 'origin/main',
         sparsePresetId: 'preset-1'
       })
+    })
+    // A sparse create can never claim a prepared checkout; say so rather than looking like a miss.
+    expect(result.timing?.preparedCheckout).toEqual({
+      status: 'miss',
+      reason: 'sparse_checkout'
     })
   })
 
@@ -287,7 +294,7 @@ describe('registerWorktreeHandlers', () => {
     })
 
     expect(store.setWorktreeMeta).toHaveBeenCalledWith(
-      'repo-1::/workspace/improve-dashboard',
+      hostWorktreeTarget({ id: 'repo-1::/workspace/improve-dashboard', hostId: 'local' }),
       expect.objectContaining({
         sparseDirectories: ['packages/web'],
         sparseBaseRef: 'origin/main',
@@ -324,7 +331,7 @@ describe('registerWorktreeHandlers', () => {
     })
 
     expect(store.setWorktreeMeta).toHaveBeenCalledWith(
-      'repo-1::/workspace/improve-dashboard',
+      hostWorktreeTarget({ id: 'repo-1::/workspace/improve-dashboard', hostId: 'local' }),
       expect.objectContaining({
         sparseDirectories: ['packages/web'],
         sparseBaseRef: 'origin/main',

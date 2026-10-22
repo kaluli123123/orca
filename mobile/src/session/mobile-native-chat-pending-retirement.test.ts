@@ -60,6 +60,63 @@ describe('selectGluedPendingIds', () => {
     expect(retiredIds(messages, pending)).toEqual(['p1', 'p2'])
   })
 
+  // `first\` + Enter is a newline request to the agent TUI, not a submit, so the
+  // next send lands in the SAME turn with the backslash dropped. The echo keeps
+  // a character the transcript row never has.
+  it('still retires literal-backslash sends glued by agents that retain it', () => {
+    const messages = [assistantTurn('m1', 'ready', 1000), userTurn('m2', 'run\\ again', 5000)]
+    const pending = [pendingSend('p1', 'run\\', 'm1'), pendingSend('p2', 'again', 'm1')]
+    expect(retiredIds(messages, pending)).toEqual(['p1', 'p2'])
+  })
+
+  it('keeps a repeated continuation pending until a second transcript turn lands', () => {
+    const messages = [assistantTurn('m1', 'ready', 1000), userTurn('m2', 'run again', 5000)]
+    const pending = [pendingSend('p1', 'run\\', 'm1'), pendingSend('p2', 'run\\', 'm1', 2)]
+    expect(retiredIds(messages, pending)).toEqual(['p1'])
+  })
+
+  it('never retires continuation echoes against a row older than their baseline', () => {
+    const messages = [userTurn('m1', 'run again', 1000), assistantTurn('m2', 'ready', 2000)]
+    expect(retiredIds(messages, [pendingSend('p1', 'run\\', 'm2')])).toEqual([])
+  })
+
+  it.each(['one\\ two three', 'one two\\ three'])(
+    'retires mixed literal and continuation backslashes in %s',
+    (text) => {
+      const messages = [assistantTurn('m1', 'ready', 1000), userTurn('m2', text, 5000)]
+      const pending = [
+        pendingSend('p1', 'one\\', 'm1'),
+        pendingSend('p2', 'two\\', 'm1'),
+        pendingSend('p3', 'three', 'm1')
+      ]
+      expect(retiredIds(messages, pending)).toEqual(['p1', 'p2', 'p3'])
+    }
+  )
+
+  it('retires a pair whose first send ended in a continuation backslash', () => {
+    const messages = [
+      assistantTurn('m1', 'ready', 1000),
+      userTurn('m2', 'run the tests\nagain', 5000)
+    ]
+    const pending = [pendingSend('p1', 'run the tests\\', 'm1'), pendingSend('p2', 'again', 'm1')]
+    expect(retiredIds(messages, pending)).toEqual(['p1', 'p2'])
+  })
+
+  it('retires a lone continuation echo absorbed into a longer turn', () => {
+    const messages = [
+      assistantTurn('m1', 'ready', 1000),
+      userTurn('m2', 'run the tests\nfrom another client', 5000)
+    ]
+    const pending = [pendingSend('p1', 'run the tests\\', 'm1')]
+    expect(retiredIds(messages, pending)).toEqual(['p1'])
+  })
+
+  it('keeps a continuation echo when a later row only shares its prefix', () => {
+    const messages = [assistantTurn('m1', 'ready', 1000), userTurn('m2', 'history repeats', 5000)]
+    const pending = [pendingSend('p1', 'hi\\', 'm1')]
+    expect(retiredIds(messages, pending)).toEqual([])
+  })
+
   it('retires three collapsed prompts in one row', () => {
     const messages = [assistantTurn('m1', 'ready', 1000), userTurn('m2', 'one two three', 5000)]
     const pending = [
@@ -230,6 +287,38 @@ describe('selectGluedPendingIds', () => {
     expect(
       retireLandedMobileNativeChatPending(messages, pending, NO_IMAGE_ECHOES).map((item) => item.id)
     ).toEqual(['p1', 'p2'])
+  })
+
+  it('retires an image send glued with the text send beside it once its preview rebinds', () => {
+    // Regression: one message typed, images attached, then a second send glued onto the
+    // same input line. The image echo could not match the glued row (its matcher wanted
+    // the whole row to equal the echo), and because an image echo was excluded from the
+    // glue pass it also acted as a barrier — stranding the text send in a run of one,
+    // which `matchGluedRun` rejects. Neither echo could ever retire, so the message
+    // rendered twice over, with the image copy sorting below the reply it preceded.
+    const messages = [assistantTurn('m1', 'ready', 1000), userTurn('m2', 'one two', 5000)]
+    const pending = [
+      { ...pendingSend('p1', 'one', 'm1'), images: ['file:///a.png'] },
+      pendingSend('p2', 'two', 'm1')
+    ]
+    const rebound: ReadonlySet<string> = new Set(['p1'])
+    expect([...selectGluedPendingIds(messages, pending, new Set(), rebound)].sort()).toEqual([
+      'p1',
+      'p2'
+    ])
+    expect(
+      retireLandedMobileNativeChatPending(messages, pending, rebound).map((item) => item.id)
+    ).toEqual([])
+  })
+
+  it('still strands nothing when the glued row belongs to an older baseline', () => {
+    // The per-send boundary still applies to a rebound image echo.
+    const messages = [userTurn('m1', 'one two', 1000), assistantTurn('m2', 'ready', 5000)]
+    const pending = [
+      { ...pendingSend('p1', 'one', 'm2'), images: ['file:///a.png'] },
+      pendingSend('p2', 'two', 'm2')
+    ]
+    expect([...selectGluedPendingIds(messages, pending, new Set(), new Set(['p1']))]).toEqual([])
   })
 
   it('does nothing for a single pending send', () => {

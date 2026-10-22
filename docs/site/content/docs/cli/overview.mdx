@@ -14,7 +14,7 @@ import { Callout } from '@/components/docs/prose'
 
 The Orca CLI is the `orca` command-line interface for scripting a running Orca editor from any shell. Use it to create and inspect worktrees, drive agent terminals, open files and diffs, automate the built-in browser, run scheduled automations, share HTML/Markdown artifacts, and control Orca-native tools from scripts or AI agents.
 
-It ships with the desktop app; register it under [Settings → General → Orca CLI](/docs/settings).
+It ships with the desktop app; register it under [Settings → General → Orca CLI](/docs/settings). On Linux the command is `orca-ide`, because GNOME Orca's screen reader already owns `/usr/bin/orca` — see [Install → Linux](/docs/install#linux).
 
 Agents can install the matching Orca CLI skill with:
 
@@ -38,8 +38,11 @@ orca status --json
 ```
 orca worktree ps --json
 orca worktree create --repo id:<repoId> --name my-task --issue 123 --json
+orca worktree create --repo id:<repoId> --name review-pr-123 --pr 123 --json
 orca worktree current --json
 orca worktree set --worktree active --comment "reproduced bug" --json
+orca worktree set --worktree active --gitlab-issue 42 --gitlab-mr 77 --json
+orca worktree set --worktree active --pr null --json
 orca worktree rm --worktree id:<id> --force --json
 ```
 
@@ -60,7 +63,7 @@ For tracked multi-agent work, use [Orchestration](/docs/cli/orchestration) inste
 
 ## File commands
 
-Open files and diffs in the active Orca worktree from a shell:
+Open files and diffs as tabs in their Orca worktree from a shell. They open without changing what you are looking at; add `--focus` to be brought to the file:
 
 ```
 orca file open src/App.tsx

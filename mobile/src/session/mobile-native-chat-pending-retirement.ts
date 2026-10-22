@@ -1,3 +1,4 @@
+import { nativeChatContinuationSendText } from '../../../src/shared/native-chat-continuation-send'
 import type { NativeChatMessage } from '../../../src/shared/native-chat-types'
 import {
   countImageSourceTurnsAfter,
@@ -17,16 +18,19 @@ const NO_PENDING_IDS: ReadonlySet<string> = new Set()
 export const GLUE_SLIDE_BUDGET = 8
 
 type UserTurn = { index: number; text: string }
-type GlueSegment = { text: string; tail: number } | null
+type GlueSegment = { text: string; literal: string; tail: number; continuation: boolean } | null
 
 /** Pending ids represented by post-send transcript rows that glued adjacent sends. */
 export function selectGluedPendingIds(
   messages: readonly NativeChatMessage[],
   pending: readonly MobileNativeChatPendingMessage[],
-  excludedPendingIds: ReadonlySet<string> = NO_PENDING_IDS
+  excludedPendingIds: ReadonlySet<string> = NO_PENDING_IDS,
+  /** Image echoes whose local preview has been rebound onto its transcript row.
+   *  Until that happens an image echo must stay put, so it is not a glue segment. */
+  reboundImagePendingIds: ReadonlySet<string> = NO_PENDING_IDS
 ): ReadonlySet<string> {
   const retired = new Set<string>()
-  if (pending.length < 2) {
+  if (pending.length < 2 && !pending.some((item) => nativeChatContinuationSendText(item.text))) {
     return retired
   }
   const messageIndexById = new Map<string, number>()
@@ -39,18 +43,29 @@ export function selectGluedPendingIds(
     }
   }
   const segments: GlueSegment[] = pending.map((item) => {
-    const text = normalizeReconcileText(item.text)
+    const continuation = nativeChatContinuationSendText(item.text)
+    const text = continuation ?? normalizeReconcileText(item.text)
     const tail =
       item.baselineTailMessageId === null
         ? -1
         : (messageIndexById.get(item.baselineTailMessageId) ?? null)
+    // An image send glues onto the input line like any other, so once its preview is
+    // rebound its text is a real segment of the resulting row. While it is still
+    // unbound it stays a barrier: retiring it early would drop the phone-local photo,
+    // which the transcript's host path cannot render.
+    const unboundImage = Boolean(item.images?.length) && !reboundImagePendingIds.has(item.id)
     return excludedPendingIds.has(item.id) ||
       !item.baselineResolved ||
-      item.images?.length ||
+      unboundImage ||
       text === '' ||
       tail === null
       ? null
-      : { text, tail }
+      : {
+          text,
+          literal: normalizeReconcileText(item.text),
+          tail,
+          continuation: continuation !== null
+        }
   })
 
   // Barriers preserve original adjacency after exact landings retire.
@@ -65,7 +80,7 @@ export function selectGluedPendingIds(
     }
     let cursor = runStart
     for (const turn of turns) {
-      if (cursor >= runEnd - 1) {
+      if (cursor >= runEnd) {
         break
       }
       // A send that can never match must not freeze the run behind it. One
@@ -77,7 +92,7 @@ export function selectGluedPendingIds(
       let budget = runEnd - runStart + GLUE_SLIDE_BUDGET
       let start = cursor
       let matched = 0
-      for (; start <= runEnd - 2 && budget > 0; start++) {
+      for (; start < runEnd && budget > 0; start++) {
         const attempt = matchGluedRun(turn, segments, start, runEnd)
         budget -= attempt.inspected
         matched = attempt.matched
@@ -107,6 +122,7 @@ function matchGluedRun(
 ): { matched: number; inspected: number } {
   let at = 0
   let matched = 0
+  let opened = 0
   let inspected = 0
   for (let index = start; index < end; index++) {
     const segment = segments[index]!
@@ -114,22 +130,27 @@ function matchGluedRun(
     // Every send carries its OWN boundary: a row that already existed when this
     // send was issued can never be part of its echo, however well it reads.
     if (turn.index <= segment.tail) {
-      return { matched: 0, inspected }
+      return { matched: opened, inspected }
     }
     if (at > 0 && turn.text[at] === SPACE) {
       at += 1
     }
-    if (!turn.text.startsWith(segment.text, at)) {
-      return { matched: 0, inspected }
+    const literal = segment.continuation && turn.text.startsWith(segment.literal, at)
+    const text = literal ? segment.literal : segment.text
+    if (!turn.text.startsWith(text, at)) {
+      return { matched: opened, inspected }
     }
-    at += segment.text.length
+    at += text.length
     matched += 1
+    if (segment.continuation && !literal && (at === turn.text.length || turn.text[at] === SPACE)) {
+      opened = matched
+    }
     if (at === turn.text.length) {
       // A lone exact match is an ordinary landing, which the count pass owns.
-      return { matched: matched > 1 ? matched : 0, inspected }
+      return { matched: matched > 1 ? matched : opened, inspected }
     }
   }
-  return { matched: 0, inspected }
+  return { matched: opened, inspected }
 }
 
 /** Retires exact and glued transcript landings while preserving pending order. */
@@ -146,6 +167,10 @@ export function retireLandedMobileNativeChatPending(
     }
   }
   const landedPendingIds = new Set<string>()
+  // Why a separate set: a barrier preserves adjacency after a landing consumed a whole
+  // row. An image landing can share its row with the send glued after it, so treating it
+  // as a barrier would strand that send in a run of one and keep its echo forever.
+  const exactLandedIds = new Set<string>()
   for (const item of current) {
     if (landedImagePendingIds.has(item.id)) {
       landedPendingIds.add(item.id)
@@ -164,9 +189,10 @@ export function retireLandedMobileNativeChatPending(
         : (landedCounts.get(normalizeReconcileText(item.text)) ?? 0) >= item.expectedOccurrence
     if (landed) {
       landedPendingIds.add(item.id)
+      exactLandedIds.add(item.id)
     }
   }
-  const glued = selectGluedPendingIds(messages, current, landedPendingIds)
+  const glued = selectGluedPendingIds(messages, current, exactLandedIds, landedImagePendingIds)
   return landedPendingIds.size === 0 && glued.size === 0
     ? current
     : current.filter((item) => !landedPendingIds.has(item.id) && !glued.has(item.id))

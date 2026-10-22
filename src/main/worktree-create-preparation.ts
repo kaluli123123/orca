@@ -1,46 +1,76 @@
-import { randomUUID } from 'node:crypto'
+import { worktreePreparationGit } from './git/worktree-create-git-executor'
 import { mkdir } from 'node:fs/promises'
 import { posix, win32 } from 'node:path'
-import type { Store } from './persistence'
+import type { ProjectRuntimeResolutionStore } from './local-project-runtime-resolution'
 import type { Repo } from '../shared/repo-types'
 import { isFolderRepo } from '../shared/repo-kind'
 import { isWindowsAbsolutePathLike } from '../shared/cross-platform-path'
-import {
-  WORKTREE_CREATE_PREPARATION_DIRECTORY,
-  createWorktreePreparationLockReason,
-  isWorktreeCreatePreparation,
-  parseWorktreePreparationOwnerPid,
-  parseWorktreePreparationPathOwnerPid
-} from '../shared/worktree/create-preparation'
+import type {
+  PreparedCheckoutMissReason,
+  PreparedCheckoutOrigin,
+  PreparedCheckoutReset
+} from '../shared/worktree/create-types'
+import type { WorktreeCreatePhase } from '../shared/worktree/create-timing-vocabulary'
 import type { AddWorktreeOptions, AddWorktreeResult } from './git/worktree'
-import { listWorktreeGraph } from './git/worktree'
+import { WorktreePreparationLockOwnershipError } from './git/worktree-preparation-lock'
+import {
+  _resetPreparationPoolForTests,
+  hasPendingPreparations,
+  releasePreparationClaim,
+  startPreparation,
+  type DeferredPreparation,
+  type PreparationClaim,
+  type PreparationEntry
+} from './worktree-create-preparation-pool'
+import {
+  canonicalBaseRef,
+  reservePreparation,
+  type ReservedPreparation
+} from './worktree-create-preparation-reservation'
 import {
   discardPreparedWorktree,
-  finalizePreparedWorktree,
-  unlockPreparedWorktree,
-  prepareWorktreeCreateCheckout
+  finalizePreparedWorktree
 } from './git/worktree-create-preparation'
 import {
   getLocalProjectWorktreeGitOptions,
   getWorktreeMirrorDistro
 } from './project-runtime-git-options'
 import { computeWorkspaceRootAsync, getWorktreePathSettings } from './ipc/worktree-logic'
+import {
+  recordPreparationConsume,
+  resetPreparationConsumeHistoryForTests
+} from './worktree-create-preparation-burst'
 import { toHostFilesystemPath } from './host-tree-removal'
+import type { WorktreeCreateTimingRecorder } from './worktree-create-timing'
 
-export const WORKTREE_CREATE_PREPARATION_TTL_MS = 5 * 60_000
-export const WORKTREE_CREATE_PREPARATION_LIMIT = 3
-const STALE_PREPARATION_CLEANUP_CONCURRENCY = 4
+export {
+  WORKTREE_CREATE_PREPARATION_LIMIT,
+  WORKTREE_CREATE_PREPARATION_TTL_MS
+} from './worktree-create-preparation-pool'
+import { getRepoRoutingConnectionId } from '../shared/execution-host'
 
-type PreparationEntry = {
-  key: string
-  repoPath: string
-  workspaceRoot: string
-  preparedPath: string
-  options: AddWorktreeOptions
-  createdAt: number
-  ready: Promise<void>
-  expiration: NodeJS.Timeout
+/** A prepared checkout is a create that is either in flight or imminent. */
+export function hasPendingWorktreeCreatePreparations(): boolean {
+  return hasPendingPreparations()
 }
+
+/** Carries the consumed slot's pending re-arm to the create's outermost `finally`, which fires it
+ *  once — after startup on success, and on any failure that follows the consume. */
+export type PreparationRearmHolder = { fire: () => void }
+
+export type PreparedWorktreeCreateAttempt =
+  | {
+      status: 'hit'
+      retargeted: boolean
+      reset: PreparedCheckoutReset
+      origin: PreparedCheckoutOrigin
+      buildMs: number
+      idleMs: number
+      result: AddWorktreeResult
+      /** Run after materialization/startup completes, before returning the create result. */
+      rearm: () => void
+    }
+  | { status: 'miss'; reason: PreparedCheckoutMissReason; rearm?: () => void }
 
 type ConsumePreparedWorktreeArgs = {
   repoPath: string
@@ -50,119 +80,46 @@ type ConsumePreparedWorktreeArgs = {
   baseBranch: string
   refreshLocalBaseRef?: boolean
   options?: AddWorktreeOptions
+  timing?: Pick<
+    WorktreeCreateTimingRecorder,
+    'time' | 'recordPreparedCheckout' | 'recordAdoptedPreparation'
+  >
 }
 
-const preparations = new Map<string, PreparationEntry>()
-const staleCleanupInFlight = new Map<string, Promise<void>>()
-
-function pathOps(path: string): Pick<typeof posix, 'dirname' | 'join' | 'normalize'> {
-  return isWindowsAbsolutePathLike(path) ? win32 : posix
+function timePhase<T>(
+  args: ConsumePreparedWorktreeArgs,
+  phase: WorktreeCreatePhase,
+  operation: () => Promise<T>
+): Promise<T> {
+  return args.timing ? args.timing.time(phase, operation) : operation()
 }
 
-function pathKey(path: string): string {
-  const normalized = pathOps(path).normalize(path)
-  return isWindowsAbsolutePathLike(path) ? normalized.toLowerCase() : normalized
+export type WorktreePreparationStore = Omit<ProjectRuntimeResolutionStore, 'getSettings'> & {
+  getSettings(): Pick<
+    Parameters<typeof getWorktreePathSettings>[1],
+    'workspaceDir' | 'nestWorkspaces'
+  > &
+    ReturnType<NonNullable<ProjectRuntimeResolutionStore['getSettings']>>
 }
 
-function preparationKey(
-  repoPath: string,
-  workspaceRoot: string,
-  baseBranch: string,
-  options: AddWorktreeOptions
-): string {
-  return `${pathKey(repoPath)}\0${pathKey(workspaceRoot)}\0${baseBranch}\0${options.wslDistro ?? ''}`
-}
-
-function isProcessAlive(pid: number): boolean {
-  try {
-    process.kill(pid, 0)
-    return true
-  } catch (error) {
-    return (error as NodeJS.ErrnoException).code !== 'ESRCH'
-  }
-}
-
-async function discardEntry(entry: PreparationEntry): Promise<void> {
-  await entry.ready.catch(() => {})
-  await discardPreparedWorktree(entry.repoPath, entry.preparedPath, entry.options).catch(() => {})
-}
-
-function expireEntry(entry: PreparationEntry): void {
-  if (preparations.get(entry.key) !== entry) {
-    return
-  }
-  preparations.delete(entry.key)
-  void discardEntry(entry)
-}
-
-function enforcePreparationLimit(): void {
-  while (preparations.size >= WORKTREE_CREATE_PREPARATION_LIMIT) {
-    const oldest = [...preparations.values()].sort(
-      (left, right) => left.createdAt - right.createdAt
-    )[0]
-    if (!oldest) {
-      return
-    }
-    preparations.delete(oldest.key)
-    clearTimeout(oldest.expiration)
-    void discardEntry(oldest)
-  }
-}
-
-async function cleanupStalePreparations(
-  repoPath: string,
-  options: AddWorktreeOptions
-): Promise<void> {
-  const cleanupKey = `${pathKey(repoPath)}\0${options.wslDistro ?? ''}`
-  const existing = staleCleanupInFlight.get(cleanupKey)
-  if (existing) {
-    await existing.catch(() => {})
-    return
-  }
-  const cleanup = (async () => {
-    const worktrees = await listWorktreeGraph(repoPath, {
-      ...options,
-      includeCreatePreparations: true
-    })
-    const staleWorktrees = worktrees.filter(isWorktreeCreatePreparation)
-    let nextIndex = 0
-    async function discardNextStalePreparation(): Promise<void> {
-      while (nextIndex < staleWorktrees.length) {
-        const worktree = staleWorktrees[nextIndex]
-        nextIndex += 1
-        const lockOwnerPid = parseWorktreePreparationOwnerPid(worktree.lockReason)
-        const pathOwnerPid = parseWorktreePreparationPathOwnerPid(worktree.path)
-        if (!lockOwnerPid || isProcessAlive(lockOwnerPid)) {
-          continue
-        }
-        // Preserve a branch-attached final path after a crash; only detached or
-        // still-hidden preparations are safe to discard automatically.
-        if (worktree.branch && pathOwnerPid === null) {
-          await unlockPreparedWorktree(repoPath, worktree.path, options).catch(() => {})
-        } else if (pathOwnerPid === lockOwnerPid) {
-          await discardPreparedWorktree(repoPath, worktree.path, options).catch(() => {})
-        }
-      }
-    }
-    const workerCount = Math.min(STALE_PREPARATION_CLEANUP_CONCURRENCY, staleWorktrees.length)
-    await Promise.all(Array.from({ length: workerCount }, () => discardNextStalePreparation()))
-  })()
-  staleCleanupInFlight.set(cleanupKey, cleanup)
-  try {
-    await cleanup.catch(() => {})
-  } finally {
-    if (staleCleanupInFlight.get(cleanupKey) === cleanup) {
-      staleCleanupInFlight.delete(cleanupKey)
-    }
-  }
-}
-
-export async function prepareWorktreeCreateForRepo(
-  store: Store,
+export function prepareWorktreeCreateForRepo(
+  store: WorktreePreparationStore,
   repo: Repo,
-  baseBranch: string
+  baseBranch: string,
+  beforeMaterialization?: Promise<void>
 ): Promise<void> {
-  if (repo.connectionId || isFolderRepo(repo)) {
+  return worktreePreparationGit.run(() =>
+    prepareWorktreeCreateInBackground(store, repo, baseBranch, beforeMaterialization)
+  )
+}
+
+async function prepareWorktreeCreateInBackground(
+  store: WorktreePreparationStore,
+  repo: Repo,
+  baseBranch: string,
+  beforeMaterialization?: Promise<void>
+): Promise<void> {
+  if (getRepoRoutingConnectionId(repo) || isFolderRepo(repo)) {
     return
   }
   const options = getLocalProjectWorktreeGitOptions(store, repo)
@@ -174,117 +131,189 @@ export async function prepareWorktreeCreateForRepo(
     repo.path,
     getWorktreePathSettings(repo, store.getSettings(), getWorktreeMirrorDistro(store, repo))
   )
-  const key = preparationKey(repo.path, workspaceRoot, baseBranch, options)
-  const existing = preparations.get(key)
-  if (existing) {
-    return existing.ready
-  }
-
-  enforcePreparationLimit()
-  const preparationId = `${process.pid}-${randomUUID()}`
-  const lockReason = createWorktreePreparationLockReason(preparationId)
-  const preparedPath = pathOps(workspaceRoot).join(
-    workspaceRoot,
-    WORKTREE_CREATE_PREPARATION_DIRECTORY,
-    preparationId
-  )
-  const entry = {} as PreparationEntry
-  const expiration = setTimeout(() => expireEntry(entry), WORKTREE_CREATE_PREPARATION_TTL_MS)
-  expiration.unref()
-  Object.assign(entry, {
-    key,
+  const canonicalBase = await canonicalBaseRef(repo.path, baseBranch, options)
+  return startPreparation({
     repoPath: repo.path,
     workspaceRoot,
-    preparedPath,
+    baseBranch,
+    canonicalBase,
     options,
-    createdAt: Date.now(),
-    expiration,
-    ready: (async () => {
-      await cleanupStalePreparations(repo.path, options)
-      await mkdir(
-        toHostFilesystemPath(
-          pathOps(workspaceRoot).join(workspaceRoot, WORKTREE_CREATE_PREPARATION_DIRECTORY)
-        ),
-        { recursive: true }
-      )
-      await prepareWorktreeCreateCheckout(repo.path, preparedPath, baseBranch, lockReason, options)
-    })()
-  } satisfies PreparationEntry)
-  preparations.set(key, entry)
-  void entry.ready.catch(() => {
-    if (preparations.get(key) === entry) {
-      preparations.delete(key)
-      clearTimeout(entry.expiration)
-    }
+    beforeMaterialization
   })
-  return entry.ready
 }
 
+type ClaimedPreparation =
+  | ({ status: 'claimed'; claimedAt: number } & ReservedPreparation)
+  | { status: 'miss'; reason: PreparedCheckoutMissReason; rearm?: () => void }
+
 async function claimPreparedWorktree(
-  repoPath: string,
-  workspaceRoot: string,
-  baseBranch: string,
+  args: ConsumePreparedWorktreeArgs,
   options: AddWorktreeOptions
-): Promise<PreparationEntry | null> {
-  const key = preparationKey(repoPath, workspaceRoot, baseBranch, options)
-  const entry = preparations.get(key)
-  if (!entry) {
-    return null
+): Promise<ClaimedPreparation> {
+  // Timed on its own so a miss's probes and drift check are not read as the plain add's cost.
+  const reserved = await timePhase(args, 'prepared_checkout_claim', () =>
+    reservePreparation(args, options)
+  )
+  if (reserved.status === 'miss') {
+    return reserved
   }
-  preparations.delete(key)
-  clearTimeout(entry.expiration)
+  const { entry, reservation } = reserved
+  args.timing?.recordAdoptedPreparation(entry.activity.work)
+  const claimedAt = performance.now()
   try {
-    await entry.ready
-    return entry
+    await timePhase(args, 'prepared_checkout_wait', () => entry.ready)
+    return { ...reserved, status: 'claimed', claimedAt }
   } catch {
-    return null
+    return { status: 'miss', reason: 'prepare_failed', rearm: releaseClaimAfterCreate(reservation) }
+  }
+}
+
+function startDeferredPreparation(preparation: DeferredPreparation): void {
+  void startPreparation(preparation.args, preparation.kind).catch(() => {
+    // A later create still has the normal add path if speculative preparation fails.
+  })
+}
+
+function releaseClaimAfterCreate(reservation: PreparationClaim): () => void {
+  return () => {
+    for (const preparation of releasePreparationClaim(reservation).pendingPreparations) {
+      startDeferredPreparation(preparation)
+    }
+  }
+}
+
+/** Replaces a just-consumed preparation, re-armed on the base the create actually used so the
+ *  next one hits exactly — but only once the user has shown they are creating in a burst. A
+ *  replacement costs a full checkout and ~5 minutes of disk until its TTL, so arming one after an
+ *  isolated create spends that on nobody.
+ *
+ *  Returns a thunk rather than launching: the replacement is a full `reset --hard`, which on a
+ *  large repo holds a general admission slot for tens of seconds. Started mid-create it competes
+ *  with the create's own git, so the caller runs it after materialization/startup completes. The burst
+ *  bookkeeping still happens here so a later create is recognized as part of a burst. An explicit
+ *  prefetch during this create takes precedence over the burst replacement at release. */
+function deferRearmPreparation(
+  entry: PreparationEntry,
+  reservation: PreparationClaim,
+  baseBranch: string,
+  canonicalBase: string
+): () => void {
+  const continuesBurst = recordPreparationConsume(entry.key)
+  return () => {
+    const { released, pendingPreparations } = releasePreparationClaim(reservation)
+    if (!released) {
+      return
+    }
+    const requestedBaseArmed = pendingPreparations.some(
+      (preparation) => preparation.args.canonicalBase === canonicalBase
+    )
+    for (const preparation of pendingPreparations) {
+      startDeferredPreparation(preparation)
+    }
+    if (continuesBurst && !requestedBaseArmed) {
+      startDeferredPreparation({
+        args: {
+          repoPath: entry.repoPath,
+          workspaceRoot: entry.workspaceRoot,
+          baseBranch,
+          canonicalBase,
+          options: entry.options
+        },
+        kind: 'automatic'
+      })
+    }
   }
 }
 
 export async function consumePreparedWorktreeCreate(
   args: ConsumePreparedWorktreeArgs
-): Promise<AddWorktreeResult | null> {
-  const options = args.options ?? {}
-  const entry = await claimPreparedWorktree(
-    args.repoPath,
-    args.workspaceRoot,
-    args.baseBranch,
-    options
+): Promise<PreparedWorktreeCreateAttempt> {
+  const attempt = await attemptPreparedWorktreeCreate(args)
+  args.timing?.recordPreparedCheckout(
+    attempt.status === 'hit'
+      ? {
+          status: 'hit',
+          reset: attempt.reset,
+          origin: attempt.origin,
+          buildMs: attempt.buildMs,
+          idleMs: attempt.idleMs
+        }
+      : { status: 'miss', reason: attempt.reason }
   )
-  if (!entry) {
-    return null
+  return attempt
+}
+
+function preparedCheckoutReset(retargeted: boolean, headReset: boolean): PreparedCheckoutReset {
+  if (!headReset) {
+    return 'none'
   }
+  return retargeted ? 'retargeted' : 'base_moved'
+}
+
+async function attemptPreparedWorktreeCreate(
+  args: ConsumePreparedWorktreeArgs
+): Promise<PreparedWorktreeCreateAttempt> {
+  const options = args.options ?? {}
+  const claim = await claimPreparedWorktree(args, options)
+  if (claim.status === 'miss') {
+    return { status: 'miss', reason: claim.reason, ...(claim.rearm ? { rearm: claim.rearm } : {}) }
+  }
+  const { entry, reservation } = claim
   try {
-    await mkdir(toHostFilesystemPath(pathOps(args.worktreePath).dirname(args.worktreePath)), {
-      recursive: true
-    })
-    return await finalizePreparedWorktree(
-      args.repoPath,
-      entry.preparedPath,
-      args.worktreePath,
-      args.branch,
-      args.baseBranch,
-      args.refreshLocalBaseRef,
-      options
+    // Finalize resolves the requested base itself and resets the prepared checkout onto that
+    // commit, so a retargeted claim is handed over at the requested commit or not at all.
+    const { preparedHeadReset, ...result } = await timePhase(
+      args,
+      'prepared_checkout_finalize',
+      async () => {
+        const parentDir = isWindowsAbsolutePathLike(args.worktreePath)
+          ? win32.dirname(args.worktreePath)
+          : posix.dirname(args.worktreePath)
+        await mkdir(toHostFilesystemPath(parentDir), { recursive: true })
+        return finalizePreparedWorktree(
+          args.repoPath,
+          entry.preparedPath,
+          args.worktreePath,
+          args.branch,
+          args.baseBranch,
+          args.refreshLocalBaseRef,
+          options,
+          entry.lockReason
+        )
+      }
     )
+    // Consuming the only prepared checkout leaves the next create cold. Re-arm for a user who is
+    // creating in a burst; the TTL and the preparation limit still bound an unused replacement.
+    const rearm = deferRearmPreparation(entry, reservation, args.baseBranch, claim.canonicalBase)
+    return {
+      status: 'hit',
+      retargeted: claim.retargeted,
+      reset: preparedCheckoutReset(claim.retargeted, preparedHeadReset),
+      origin: entry.activity.origin(),
+      ...entry.activity.timesAt(claim.claimedAt),
+      result,
+      rearm
+    }
   } catch (error) {
-    await discardPreparedWorktree(args.repoPath, entry.preparedPath, options).catch(() => {})
+    // Another owner holds the preparation's lock, so it is not ours to remove.
+    if (!(error instanceof WorktreePreparationLockOwnershipError)) {
+      await timePhase(args, 'prepared_checkout_discard', () =>
+        discardPreparedWorktree(args.repoPath, entry.preparedPath, options, entry.lockReason)
+      ).catch(() => {})
+    }
     console.warn(
       '[worktree-create] prepared checkout could not be finalized; using normal add',
       error
     )
-    return null
+    return {
+      status: 'miss',
+      reason: 'finalize_failed',
+      rearm: releaseClaimAfterCreate(reservation)
+    }
   }
 }
 
 export async function _resetWorktreeCreatePreparationsForTests(): Promise<void> {
-  const entries = [...preparations.values()]
-  preparations.clear()
-  staleCleanupInFlight.clear()
-  await Promise.all(
-    entries.map(async (entry) => {
-      clearTimeout(entry.expiration)
-      await discardEntry(entry)
-    })
-  )
+  resetPreparationConsumeHistoryForTests()
+  await _resetPreparationPoolForTests()
 }

@@ -1,6 +1,5 @@
 import type { Dispatch, MutableRefObject, RefObject, SetStateAction } from 'react'
-import { cn } from '@/lib/utils'
-import { Globe } from 'lucide-react'
+import { BrowserPageZoomIndicator } from './browser-page-zoom-indicator'
 import { translate } from '@/i18n/i18n'
 import { toHttpsRecoveryUrl } from '../../../../../shared/browser-url'
 import type {
@@ -11,6 +10,7 @@ import { BROWSER_GUEST_RECOVERY_ERROR_CODE } from '../host-guest/browser-page-gu
 import { BrowserLoadFailureOverlay } from '../navigate/browser-load-failure-overlay'
 import { useSshWorkspaceProbeSkipRecheck } from '../use-ssh-workspace-browser-route'
 import BrowserFind from './BrowserFind'
+import { BrowserNewTabPage } from '../new-tab/BrowserNewTabPage'
 import { BrowserGuestAnnotateOverlays } from '../annotate/browser-guest-annotate-overlays'
 import type { MarkupModeController } from '../annotate/useMarkupMode'
 import type { GrabModeHook } from '../annotate/useGrabMode'
@@ -84,18 +84,9 @@ export function BrowserPageViewportOverlays({
         webviewRef={webviewRef}
         browserOverlayViewport={browserOverlayViewport}
         worktreeId={worktreeId}
+        currentUrl={browserTab.url}
       />
-      <div
-        role="status"
-        aria-live="polite"
-        aria-hidden={browserZoomIndicatorState.ariaHidden}
-        className={cn(
-          'pointer-events-none absolute top-3 right-3 z-30 rounded-md border border-border bg-popover/95 px-2.5 py-1 text-xs font-medium text-popover-foreground shadow-xs transition-opacity duration-300 ease-out',
-          browserZoomIndicatorState.opacityClassName
-        )}
-      >
-        {browserZoomPercent}%
-      </div>
+      <BrowserPageZoomIndicator state={browserZoomIndicatorState} percent={browserZoomPercent} />
       <BrowserFind isOpen={findOpen} onClose={() => setFindOpen(false)} webviewRef={webviewRef} />
       {showFailureOverlay && browserTab.loadError ? (
         <BrowserLoadFailureOverlay
@@ -135,26 +126,7 @@ export function BrowserPageViewportOverlays({
           }
         />
       ) : null}
-      {isBlankTab ? (
-        <div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center bg-[radial-gradient(circle_at_center,rgba(255,255,255,0.02),transparent_58%)] px-6">
-          <div className="flex flex-col items-center px-8 py-8 text-center opacity-70">
-            <div className="mb-4 rounded-full border border-border/70 bg-muted/30 p-3">
-              <Globe className="size-5 text-muted-foreground" />
-            </div>
-            <div className="text-center">
-              <p className="text-base font-semibold text-foreground/85">
-                {translate('auto.components.browser.pane.BrowserPane.366bf5d62c', 'New Tab')}
-              </p>
-              <p className="mt-2 text-sm text-muted-foreground">
-                {translate(
-                  'auto.components.browser.pane.BrowserPane.f796c774a4',
-                  'Type a URL above to start browsing.'
-                )}
-              </p>
-            </div>
-          </div>
-        </div>
-      ) : null}
+      {isBlankTab ? <BrowserNewTabPage worktreeId={worktreeId} onOpenUrl={navigateToUrl} /> : null}
     </>
   )
 }

@@ -19,10 +19,65 @@ import {
   copyPrivateTree,
   hardlinkTree,
   makeTreeReadOnly,
-  shareTree
+  makeTreeReadOnlyAsync,
+  makeTreeWritable,
+  shareTree,
+  shareTreeAsync
 } from './space-sharing-copy.mjs'
 
 const roots: string[] = []
+
+describe('asynchronous immutable sharing', () => {
+  it('preserves read-only source and relative symlinks on the execution host', async () => {
+    const { root, source } = makeTree()
+    await makeTreeReadOnlyAsync(source)
+    const destination = path.join(root, 'async-copy')
+    await shareTreeAsync(source, destination)
+    expect(readFileSync(path.join(destination, 'nested', 'file'), 'utf8')).toBe('contents')
+    expect(readlinkSync(path.join(destination, 'relative-link'))).toBe(path.join('nested', 'file'))
+    expect(statSync(path.join(destination, 'nested', 'file')).mode & 0o222).toBe(0)
+  })
+
+  it('removes partial copies before its Linux hardlink fallback', async () => {
+    const { root, source } = makeTree()
+    const destination = path.join(root, 'async-copy')
+    const reflink = async (_source: string, target: string) => {
+      mkdirSync(target)
+      writeFileSync(path.join(target, 'partial'), 'partial')
+      throw new Error('unsupported reflink')
+    }
+    expect(await shareTreeAsync(source, destination, { platform: 'linux', reflink })).toBe(
+      'hardlink'
+    )
+    expect(existsSync(path.join(destination, 'partial'))).toBe(false)
+    expect(statSync(path.join(destination, 'nested', 'file')).ino).toBe(
+      statSync(path.join(source, 'nested', 'file')).ino
+    )
+    expect(readlinkSync(path.join(destination, 'relative-link'))).toBe(path.join('nested', 'file'))
+  })
+
+  it('keeps the event loop available while a sharing process is pending', async () => {
+    const { root, source } = makeTree()
+    let finish!: () => void
+    const pending = new Promise<void>((resolve) => {
+      finish = resolve
+    })
+    let completed = false
+    const sharing = shareTreeAsync(source, path.join(root, 'async-copy'), {
+      platform: 'darwin',
+      clone: async () => {
+        await pending
+      }
+    }).then(() => {
+      completed = true
+    })
+    await new Promise<void>((resolve) => setImmediate(resolve))
+    expect(completed).toBe(false)
+    finish()
+    await sharing
+    expect(completed).toBe(true)
+  })
+})
 
 afterEach(() => {
   while (roots.length > 0) {
@@ -170,7 +225,41 @@ describe('makeTreeReadOnly', () => {
   )
 })
 
+describe('makeTreeWritable', () => {
+  it.runIf(process.platform !== 'win32')('undoes makeTreeReadOnly for the owner', () => {
+    const { source } = makeTree()
+    makeTreeReadOnly(source)
+    makeTreeWritable(source)
+    const file = path.join(source, 'nested', 'file')
+    expect(statSync(file).mode & 0o200).toBe(0o200)
+    expect(() => writeFileSync(file, 'mutated')).not.toThrow()
+  })
+
+  it.runIf(process.platform !== 'win32')('adds no write permission beyond the owner', () => {
+    const { source } = makeTree()
+    const executable = path.join(source, 'electron')
+    writeFileSync(executable, 'binary')
+    chmodSync(executable, 0o555)
+    makeTreeWritable(source)
+    expect(statSync(executable).mode & 0o777).toBe(0o755)
+  })
+})
+
 describe('copyPrivateTree', () => {
+  it.runIf(process.platform !== 'win32')(
+    'hands back a tree the caller can patch, even from a write-protected source',
+    () => {
+      const { root, source } = makeTree()
+      const destination = path.join(root, 'private')
+      makeTreeReadOnly(source)
+      copyPrivateTree(source, destination)
+      // The regression this guards: the shared Electron dist is read-only, clonefile/reflink/cpSync
+      // all carry that across, and `pn dev` then died patching the copied bundle's Info.plist.
+      expect(() => writeFileSync(path.join(destination, 'nested', 'file'), 'patched')).not.toThrow()
+      expect(readFileSync(path.join(source, 'nested', 'file'), 'utf8')).toBe('contents')
+    }
+  )
+
   it('never hardlinks, because the caller patches what it gets back', () => {
     const { root, source } = makeTree()
     const destination = path.join(root, 'private')

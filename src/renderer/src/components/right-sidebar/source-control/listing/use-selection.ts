@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect, useRef, type RefObject } from 'react'
+import { useState, useCallback, useEffect, useMemo, useRef, type RefObject } from 'react'
 import type { GitStatusEntry } from '../../../../../../shared/git-status-types'
 import type { SourceControlRowOpenEvent } from './split-open'
 
@@ -12,28 +12,16 @@ export type FlatEntry = {
   area: 'unstaged' | 'staged' | 'untracked'
 }
 
-export function reconcileSelectionKeys(
-  selectedKeys: ReadonlySet<string>,
-  flatEntries: FlatEntry[]
-): Set<string> {
-  const validKeys = new Set(flatEntries.map((e) => e.key))
-  const nextSelected = new Set<string>()
-
-  for (const key of selectedKeys) {
-    if (validKeys.has(key)) {
-      nextSelected.add(key)
-    }
-  }
-
-  return nextSelected
-}
-
 export function reconcileSourceControlSelectionState(args: {
   selectedKeys: ReadonlySet<string>
   anchorKey: string | null
   flatEntries: FlatEntry[]
 }): { selectedKeys: ReadonlySet<string>; anchorKey: string | null } {
   const { anchorKey, flatEntries, selectedKeys } = args
+  // Nothing to prune and no anchor to invalidate: skip building the key set over every visible row.
+  if (selectedKeys.size === 0 && anchorKey === null) {
+    return { selectedKeys, anchorKey }
+  }
   const validKeys = new Set(flatEntries.map((e) => e.key))
   const nextSelected = new Set<string>()
   let selectedChanged = false
@@ -74,12 +62,12 @@ export function getSelectionRangeKeys(
 
 export function useSourceControlSelection({
   flatEntries,
-  onOpenDiff,
+  onOpenFile,
   shouldOpenAsSplit,
   containerRef
 }: {
   flatEntries: FlatEntry[]
-  onOpenDiff: (entry: GitStatusEntry, event?: SourceControlRowOpenEvent) => void
+  onOpenFile: (entry: GitStatusEntry, event?: SourceControlRowOpenEvent) => void
   shouldOpenAsSplit?: (event: SourceControlRowOpenEvent) => boolean
   containerRef: RefObject<HTMLElement | null>
 }) {
@@ -88,7 +76,7 @@ export function useSourceControlSelection({
   const flatEntriesRef = useRef(flatEntries)
   const anchorKeyRef = useRef<string | null>(anchorKey)
   const selectedKeysRef = useRef(selectedKeys)
-  const onOpenDiffRef = useRef(onOpenDiff)
+  const onOpenFileRef = useRef(onOpenFile)
   const shouldOpenAsSplitRef = useRef(shouldOpenAsSplit)
 
   useEffect(() => {
@@ -104,18 +92,19 @@ export function useSourceControlSelection({
   }, [selectedKeys])
 
   useEffect(() => {
-    onOpenDiffRef.current = onOpenDiff
-  }, [onOpenDiff])
+    onOpenFileRef.current = onOpenFile
+  }, [onOpenFile])
 
   useEffect(() => {
     shouldOpenAsSplitRef.current = shouldOpenAsSplit
   }, [shouldOpenAsSplit])
 
-  const reconciledSelection = reconcileSourceControlSelectionState({
-    selectedKeys,
-    anchorKey,
-    flatEntries
-  })
+  // Memoized: this hook re-runs on every Source Control panel render (commit-message keystrokes,
+  // status polls), but the reconciliation only moves when one of these three references does.
+  const reconciledSelection = useMemo(
+    () => reconcileSourceControlSelectionState({ selectedKeys, anchorKey, flatEntries }),
+    [selectedKeys, anchorKey, flatEntries]
+  )
   if (reconciledSelection.selectedKeys !== selectedKeys) {
     // Why: visible source-control rows can disappear after filtering, staging,
     // or status refresh; prune stale bulk-action keys before children see them.
@@ -129,7 +118,7 @@ export function useSourceControlSelection({
     if (shouldOpenAsSplitRef.current?.(e)) {
       setSelectedKeys((prev) => (prev.size > 0 ? new Set() : prev))
       setAnchorKey(null)
-      onOpenDiffRef.current(entry, e)
+      onOpenFileRef.current(entry, e)
       return
     }
 
@@ -149,7 +138,7 @@ export function useSourceControlSelection({
       // stale invisible anchor.
       setSelectedKeys(new Set())
       setAnchorKey(key)
-      onOpenDiffRef.current(entry)
+      onOpenFileRef.current(entry)
     } else if (isCmdOrCtrl) {
       if (selectedKeysRef.current.has(key)) {
         setSelectedKeys((prev) => {
@@ -174,7 +163,7 @@ export function useSourceControlSelection({
         return prev
       })
       setAnchorKey(key)
-      onOpenDiffRef.current(entry)
+      onOpenFileRef.current(entry)
     }
   }, [])
 

@@ -1,9 +1,8 @@
 import type { RuntimeTerminalWaitBlockedReason } from '../../shared/runtime-types'
 import { buildTailLines } from './terminal-tail-state'
-import {
-  findActionableTerminalWaitBlockedSignal,
-  TERMINAL_WAIT_BLOCKED_SENTINEL_RE
-} from './terminal-wait-detection'
+import { tailMayContainBlockedSignal } from './terminal-tail-sentinel-index'
+import { findActionableTerminalWaitBlockedSignal } from './terminal-wait-detection'
+import { terminalWaitBlockedSentinelRe } from './agent-state-rules/blocked-text-layer'
 
 export function buildTerminalWaitText(
   lines: string[],
@@ -31,15 +30,15 @@ export function computeTerminalTailWaitState(
   partialLine: string,
   preview: string
 ): TerminalTailWaitState {
-  const tailShape = inspectTerminalWaitTail(lines, partialLine)
-  if (!tailShape.fromTail) {
+  const tailInspection = inspectTerminalWaitTail(lines, partialLine)
+  if (!tailInspection.fromTail) {
     return {
       waitText: preview,
       signal: findActionableTerminalWaitBlockedSignal(preview.toLowerCase()),
       fromTail: false
     }
   }
-  if (!tailShape.mayContainBlockedSignal) {
+  if (!tailInspection.mayContainBlockedSignal) {
     // Why: reads waitText only when a signal exists; avoid retaining a rebuilt 256 KiB string in the common case.
     return { waitText: '', signal: null, fromTail: true }
   }
@@ -60,23 +59,22 @@ function inspectTerminalWaitTail(
   lines: string[],
   partialLine: string
 ): { fromTail: boolean; mayContainBlockedSignal: boolean } {
-  let fromTail = false
-  let mayContainBlockedSignal = false
+  return {
+    fromTail: hasVisibleTailLine(lines) || partialLine.trim().length > 0,
+    // Why the index: proving a signal is ABSENT can't early-exit, so a full re-test of the
+    // 2000-line tail ran per scan; the index tests only the lines each append produced.
+    mayContainBlockedSignal:
+      tailMayContainBlockedSignal(lines) || terminalWaitBlockedSentinelRe().test(partialLine)
+  }
+}
+
+function hasVisibleTailLine(lines: string[]): boolean {
   for (const line of lines) {
-    if (!fromTail && line.trim().length > 0) {
-      fromTail = true
-    }
-    if (!mayContainBlockedSignal && TERMINAL_WAIT_BLOCKED_SENTINEL_RE.test(line)) {
-      mayContainBlockedSignal = true
+    if (line.trim().length > 0) {
+      return true
     }
   }
-  if (!fromTail && partialLine.trim().length > 0) {
-    fromTail = true
-  }
-  if (!mayContainBlockedSignal && TERMINAL_WAIT_BLOCKED_SENTINEL_RE.test(partialLine)) {
-    mayContainBlockedSignal = true
-  }
-  return { fromTail, mayContainBlockedSignal }
+  return false
 }
 
 // Why: consumes precomputed wait states so full-tail scans aren't repeated per chunk (replaces the former inline double full-tail scan).

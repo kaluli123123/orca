@@ -2,8 +2,11 @@ import type {
   LocalBaseRefRefreshResult,
   LocalBaseRefUpdateSuggestion
 } from '../../shared/worktree/base-ref-drift-types'
+import { readGitCommandFailureText } from '../../shared/git-command-failure-text'
 import type { RemoveWorktreeResult } from '../../shared/worktree/create-types'
+import type { GitAdmissionTier } from '../../shared/rpc-contract/git-admission-tier-params'
 import type { GitWorktreeInfo } from '../../shared/worktree/types'
+import type { WorktreeCheckoutProgressListener } from './worktree-checkout-progress'
 
 export type AddWorktreeResult = {
   localBaseRefRefresh?: LocalBaseRefRefreshResult
@@ -19,6 +22,7 @@ export type GitWorktreeExecOptions = {
   signal?: AbortSignal
   timeout?: number
   includeCreatePreparations?: boolean
+  admissionTier?: GitAdmissionTier
 }
 
 export type WorktreeRemovalPreflightOptions = GitWorktreeExecOptions & {
@@ -27,6 +31,8 @@ export type WorktreeRemovalPreflightOptions = GitWorktreeExecOptions & {
 
 export type AddWorktreeOptions = GitWorktreeExecOptions & {
   checkoutExistingBranch?: boolean
+  /** Progress of the checkout `git worktree add` performs; never called for `--no-checkout`. */
+  onCheckoutProgress?: WorktreeCheckoutProgressListener
   suggestLocalBaseRefUpdate?: boolean
   remoteTrackingBase?: {
     base: string
@@ -39,6 +45,8 @@ export type RemoveWorktreeOptions = GitWorktreeExecOptions & {
   deleteBranch?: boolean
   forceBranchDelete?: boolean
   knownRemovedWorktree?: Pick<GitWorktreeInfo, 'branch' | 'head' | 'locked' | 'lockReason'>
+  /** Stops only `git worktree remove`; a killed branch cleanup could strand a ref lock. */
+  checkoutDeleteSignal?: AbortSignal
 }
 
 // Why: bound `git worktree add` so a OneDrive cloud-placeholder stall fails fast (STA-1292); ample for an ordinary large checkout, but not one behind a slow content filter (#12696).
@@ -77,15 +85,24 @@ export function resolveWorktreeAddTimeoutMs(env: NodeJS.ProcessEnv = process.env
   return resolved
 }
 
+export type GitExecOptionsForWorktree = {
+  cwd: string
+  wslDistro?: string
+  signal?: AbortSignal
+  timeout?: number
+  admissionTier?: GitAdmissionTier
+}
+
 export function gitExecOptions(
   cwd: string,
   options: GitWorktreeExecOptions = {}
-): { cwd: string; wslDistro?: string; signal?: AbortSignal; timeout?: number } {
+): GitExecOptionsForWorktree {
   return {
     cwd,
     ...(options.wslDistro ? { wslDistro: options.wslDistro } : {}),
     ...(options.signal ? { signal: options.signal } : {}),
-    ...(options.timeout ? { timeout: options.timeout } : {})
+    ...(options.timeout ? { timeout: options.timeout } : {}),
+    ...(options.admissionTier ? { admissionTier: options.admissionTier } : {})
   }
 }
 
@@ -95,28 +112,8 @@ export function getErrorCode(error: unknown): string | undefined {
     : undefined
 }
 
-function getErrorText(error: unknown): string {
-  if (typeof error === 'object' && error !== null) {
-    const parts: string[] = []
-    if ('message' in error && typeof error.message === 'string') {
-      parts.push(error.message)
-    }
-    if ('stderr' in error && typeof error.stderr === 'string') {
-      parts.push(error.stderr)
-    }
-    return parts.join('\n')
-  }
-  return String(error)
-}
-
 export function isNotGitRepositoryError(error: unknown): boolean {
-  return /not a git repository/i.test(getErrorText(error))
-}
-
-export function isBranchCheckedOutInWorktreeError(error: unknown): boolean {
-  return /cannot delete branch .*(?:used by worktree|checked out)|branch .*is checked out/i.test(
-    getErrorText(error)
-  )
+  return /not a git repository/i.test(readGitCommandFailureText(error))
 }
 
 export function normalizeLocalBranchRef(branch: string): string {

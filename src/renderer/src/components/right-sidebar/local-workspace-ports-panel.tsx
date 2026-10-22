@@ -2,13 +2,13 @@ import React, { useCallback, useMemo, useState } from 'react'
 import { RefreshCw, Server } from 'lucide-react'
 import { toast } from 'sonner'
 import { useAppStore } from '@/store'
-import { useActiveWorktree, useRepoById } from '@/store/selectors'
+import { useActiveWorktree } from '@/store/selectors'
 import { cn } from '@/lib/utils'
-import { getActiveRuntimeTarget } from '@/runtime/runtime-rpc-client'
-import { getRuntimeEnvironmentIdForWorktree } from '@/lib/worktree-runtime-owner'
+import type { RuntimeClientTarget } from '../../../../shared/runtime-client-target'
 import {
   killWorkspacePortForTarget,
   openWorkspacePortInBrowser,
+  publishWorkspacePortScanForHost,
   refreshWorkspacePortScanAfterStop,
   resolvePortOpenInOrcaBrowser,
   scanWorkspacePortsForTarget,
@@ -19,20 +19,35 @@ import { Button } from '@/components/ui/button'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import type { WorkspacePort } from '../../../../shared/workspace-ports'
 import { translate } from '@/i18n/i18n'
-import { getLocalWorkspacePortSections } from './local-workspace-port-sections'
+import {
+  getLocalWorkspacePortSections,
+  shouldShowLocalWorkspacePortSections
+} from './local-workspace-port-sections'
 import { LocalPortSection } from './local-port-section'
 import { LocalPortDetailsDialog } from './local-port-details-dialog'
+import { SshForwardedPortsSection } from './ssh-forwarded-ports-section'
 
-export function LocalWorkspacePortsPanel({ isVisible }: { isVisible: boolean }): React.JSX.Element {
+/** Right-sidebar Ports panel for a workspace that runs on an endpoint's own machine. */
+export function LocalWorkspacePortsPanel({
+  isVisible,
+  runtimeTarget,
+  sshForwardTargetId = null
+}: {
+  isVisible: boolean
+  /** The endpoint that owns the active workspace, even if the sidebar is focused elsewhere. */
+  runtimeTarget: RuntimeClientTarget | null
+  /** A managed server's SSH host, whose connection carries this client's forwards. */
+  sshForwardTargetId?: string | null
+}): React.JSX.Element {
   const activeWorktree = useActiveWorktree()
-  const activeRepo = useRepoById(activeWorktree?.repoId ?? null)
+  // Why the workspace's repoId, not a repo row: a folder workspace has no repo, only a synthetic id.
+  const activeRepoId = activeWorktree?.repoId ?? null
   const settings = useAppStore((s) => s.settings)
   const createBrowserTab = useAppStore((s) => s.createBrowserTab)
   const setRemoteBrowserPageHandle = useAppStore((s) => s.setRemoteBrowserPageHandle)
   const scansByKey = useAppStore((s) => s.workspacePortScansByKey)
   const refreshing = useAppStore((s) => s.workspacePortScanRefreshing)
-  const setWorkspacePortScan = useAppStore((s) => s.setWorkspacePortScan)
-  const setWorkspacePortScanForKey = useAppStore((s) => s.setWorkspacePortScanForKey)
+  const replaceWorkspacePortScans = useAppStore((s) => s.replaceWorkspacePortScans)
   const setWorkspacePortScanRefreshing = useAppStore((s) => s.setWorkspacePortScanRefreshing)
   const [detailsPort, setDetailsPort] = useState<WorkspacePort | null>(null)
   const [collapsedSections, setCollapsedSections] = useState<Record<string, boolean>>({
@@ -40,26 +55,21 @@ export function LocalWorkspacePortsPanel({ isVisible }: { isVisible: boolean }):
     external: true
   })
 
-  const runtimeTarget = useMemo(() => {
-    const activeRuntimeEnvironmentId = getRuntimeEnvironmentIdForWorktree(
-      useAppStore.getState(),
-      activeWorktree?.id
-    )
-    // Why: the Ports panel acts on the active workspace; use that workspace's
-    // host owner even if the sidebar is focused elsewhere.
-    return getActiveRuntimeTarget({ ...settings, activeRuntimeEnvironmentId })
-  }, [activeWorktree?.id, settings])
-  const scanKey = `${workspacePortRuntimeTargetKey(runtimeTarget)}:all`
+  const scanKey = runtimeTarget ? `${workspacePortRuntimeTargetKey(runtimeTarget)}:all` : null
 
   const refresh = useCallback(() => {
-    if (!activeRepo) {
+    if (!activeRepoId || !runtimeTarget || !scanKey) {
       return Promise.resolve()
     }
     setWorkspacePortScanRefreshing(true)
     const promise = scanWorkspacePortsForTarget(runtimeTarget)
       .then((nextScan) => {
-        setWorkspacePortScanForKey(scanKey, nextScan)
-        setWorkspacePortScan({ key: scanKey, result: nextScan })
+        publishWorkspacePortScanForHost({
+          scanKey,
+          scan: nextScan,
+          replaceWorkspacePortScans,
+          getWorkspacePortScansByKey: () => useAppStore.getState().workspacePortScansByKey
+        })
       })
       .catch((error) => {
         const message = error instanceof Error ? error.message : String(error)
@@ -83,17 +93,16 @@ export function LocalWorkspacePortsPanel({ isVisible }: { isVisible: boolean }):
       })
     return promise
   }, [
-    activeRepo,
+    activeRepoId,
     runtimeTarget,
     scanKey,
-    setWorkspacePortScan,
-    setWorkspacePortScanForKey,
+    replaceWorkspacePortScans,
     setWorkspacePortScanRefreshing
   ])
 
   // Why: WorkspacePortScanner already owns the 30s all-worktree poll. The
   // panel scopes that shared result instead of starting a second scan loop.
-  const displayScan = isVisible ? (scansByKey[scanKey] ?? null) : null
+  const displayScan = isVisible && scanKey ? (scansByKey[scanKey] ?? null) : null
 
   const toggleSection = useCallback((sectionId: string) => {
     setCollapsedSections((current) => ({ ...current, [sectionId]: !current[sectionId] }))
@@ -101,11 +110,11 @@ export function LocalWorkspacePortsPanel({ isVisible }: { isVisible: boolean }):
 
   const handleStopPort = useCallback(
     async (port: WorkspacePort) => {
-      if (!activeRepo || !port.pid) {
+      if (!activeRepoId || !port.pid) {
         return
       }
       const result = await killWorkspacePortForTarget(runtimeTarget, {
-        repoId: activeRepo.id,
+        repoId: activeRepoId,
         pid: port.pid,
         port: port.port
       })
@@ -122,8 +131,7 @@ export function LocalWorkspacePortsPanel({ isVisible }: { isVisible: boolean }):
       )
       const refreshResult = await refreshWorkspacePortScanAfterStop({
         runtimeTarget,
-        setWorkspacePortScan,
-        setWorkspacePortScanForKey,
+        replaceWorkspacePortScans,
         getWorkspacePortScansByKey: () => useAppStore.getState().workspacePortScansByKey,
         setWorkspacePortScanRefreshing
       })
@@ -139,13 +147,7 @@ export function LocalWorkspacePortsPanel({ isVisible }: { isVisible: boolean }):
         )
       }
     },
-    [
-      activeRepo,
-      runtimeTarget,
-      setWorkspacePortScan,
-      setWorkspacePortScanForKey,
-      setWorkspacePortScanRefreshing
-    ]
+    [activeRepoId, runtimeTarget, replaceWorkspacePortScans, setWorkspacePortScanRefreshing]
   )
 
   const handleOpenPortInBrowser = useCallback(
@@ -177,11 +179,17 @@ export function LocalWorkspacePortsPanel({ isVisible }: { isVisible: boolean }):
   )
 
   const { activePorts, otherWorkspacePorts, externalPorts } = useMemo(
-    () => getLocalWorkspacePortSections(displayScan, activeRepo?.id, activeWorktree?.id),
-    [activeRepo?.id, activeWorktree?.id, displayScan]
+    () => getLocalWorkspacePortSections(displayScan, activeRepoId, activeWorktree?.id),
+    [activeRepoId, activeWorktree?.id, displayScan]
   )
 
-  if (!activeRepo) {
+  const showPortSections = shouldShowLocalWorkspacePortSections(displayScan, {
+    activePorts,
+    otherWorkspacePorts,
+    externalPorts
+  })
+
+  if (!activeRepoId) {
     return (
       <div className="flex flex-col items-center justify-center h-full px-4 text-center text-muted-foreground">
         <Server size={32} className="mb-3 opacity-50" />
@@ -209,7 +217,7 @@ export function LocalWorkspacePortsPanel({ isVisible }: { isVisible: boolean }):
               size="icon-xs"
               className="text-muted-foreground hover:text-foreground"
               onClick={() => void refresh()}
-              disabled={refreshing}
+              disabled={refreshing || !runtimeTarget}
               aria-label={translate(
                 'auto.components.right.sidebar.PortsPanel.7822e3edc6',
                 'Refresh Ports'
@@ -224,6 +232,8 @@ export function LocalWorkspacePortsPanel({ isVisible }: { isVisible: boolean }):
         </Tooltip>
       </div>
 
+      {sshForwardTargetId && <SshForwardedPortsSection connectionId={sshForwardTargetId} />}
+
       {displayScan?.unavailableReason && (
         <div className="px-3 py-2 text-xs text-muted-foreground border-b border-border">
           {translate(
@@ -237,7 +247,7 @@ export function LocalWorkspacePortsPanel({ isVisible }: { isVisible: boolean }):
         </div>
       )}
 
-      {!displayScan?.unavailableReason && (
+      {showPortSections && (
         <>
           <LocalPortSection
             id="active"

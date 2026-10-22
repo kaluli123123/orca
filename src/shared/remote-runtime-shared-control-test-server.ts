@@ -1,3 +1,7 @@
+import {
+  pairedRuntimeConnectionFromOffer,
+  type PairedRuntimeConnection
+} from './paired-runtime-connection'
 import type { AddressInfo } from 'node:net'
 import { WebSocketServer, type WebSocket } from 'ws'
 import {
@@ -11,7 +15,8 @@ import {
 import { encodePairingOffer, parsePairingCode, type PairingOffer } from './pairing'
 
 export type SharedControlTestServer = {
-  pairing: PairingOffer
+  pairing: PairedRuntimeConnection
+  offer: PairingOffer
   requests: { id: string; method: string; params?: unknown }[]
   auths: unknown[]
   connectionCount: () => number
@@ -20,6 +25,7 @@ export type SharedControlTestServer = {
 }
 
 type ServerOptions = {
+  resultForRequest?: (method: string) => unknown
   delaySubscriptionReady?: boolean
   sendKeepaliveBeforeResponse?: boolean
   keepaliveDelayMs?: number
@@ -33,6 +39,8 @@ type ServerOptions = {
   disableAutoPong?: boolean
   delayedMethods?: string[]
   silentMethods?: string[]
+  /** Refuses every auth the way a server that dropped this device does. */
+  rejectAuth?: boolean
 }
 
 const servers: WebSocketServer[] = []
@@ -60,7 +68,12 @@ export async function createSharedControlTestServer(
   const delayedResponses: (() => void)[] = []
   let connectionCount = 0
   let closedAfterFirstStreamingResponse = false
-  const wss = new WebSocketServer({ port: 0, autoPong: options.disableAutoPong !== true })
+  // host must match the 127.0.0.1 clients dial: a wildcard bind lets a foreign loopback listener claim the port and answer here.
+  const wss = new WebSocketServer({
+    host: '127.0.0.1',
+    port: 0,
+    autoPong: options.disableAutoPong !== true
+  })
   servers.push(wss)
 
   wss.on('connection', (ws) => {
@@ -93,6 +106,10 @@ export async function createSharedControlTestServer(
       }
       if (!authenticated) {
         auths.push(JSON.parse(plaintext))
+        if (options.rejectAuth) {
+          sendEncrypted(ws, sharedKey, { type: 'e2ee_error', error: { code: 'unauthorized' } })
+          return
+        }
         authenticated = true
         sendEncrypted(ws, sharedKey, { type: 'e2ee_authenticated' })
         if (options.sendBinaryAfterAuth) {
@@ -134,7 +151,8 @@ export async function createSharedControlTestServer(
     throw new Error('Failed to create test pairing')
   }
   return {
-    pairing,
+    pairing: pairedRuntimeConnectionFromOffer(pairing),
+    offer: pairing,
     requests,
     auths,
     connectionCount: () => connectionCount,
@@ -169,7 +187,7 @@ function handleRequest(
   const streaming = isStreamingMethod(request.method)
   const result = streaming
     ? { type: 'ready', subscriptionId: `${request.method}:subscription` }
-    : { method: request.method }
+    : (options.resultForRequest?.(request.method) ?? { method: request.method })
   const sendResponse = (): void => {
     if (options.sendUnknownResponseBeforeResponse) {
       sendEncrypted(ws, sharedKey, {

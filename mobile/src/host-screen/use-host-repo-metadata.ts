@@ -1,12 +1,33 @@
 import { useCallback } from 'react'
+import { getRepoExecutionHostId, parseExecutionHostId } from '../../../src/shared/execution-host'
 import { setCachedRepos } from '../cache/repo-cache'
 import type { RpcClient } from '../transport/rpc-client'
-import type { ConnectionState, RpcSuccess } from '../transport/types'
-import type { RepoSummary } from '../worktree/host-worktree-rpc-types'
-import { repoColor } from '../worktree/repo-color'
+import type { ConnectionState } from '../transport/types'
+import { buildRepoHostIdByRepoId } from '../worktree/worktree-host-context-labels'
+import { buildSshHostHealthById } from '../worktree/worktree-host-health'
+import type { SectionRepo } from '../worktree/workspace-list-types'
+import type { HostRepoCatalogRow } from './host-screen-reply-schema'
+import { hostPlatformRead, hostRepoCatalogRead } from './host-screen-operations'
+import {
+  acceptedMetadata,
+  readHostSshTargetLabels,
+  settledMetadataReply
+} from './host-ssh-target-labels-read'
 import type { HostScreenState } from './use-host-screen-state'
 
 const REPO_METADATA_REFRESH_MS = 60_000
+
+/** A desktop repo.list row as Project sections read it, for a desktop that serves no catalog. */
+function desktopSectionRepo(repo: HostRepoCatalogRow): SectionRepo {
+  return {
+    id: repo.id,
+    displayName: repo.displayName,
+    path: repo.path ?? repo.id,
+    executionHostId: getRepoExecutionHostId(repo),
+    ...(repo.badgeColor ? { badgeColor: repo.badgeColor } : {}),
+    ...(repo.repoIcon ? { repoIcon: repo.repoIcon } : {})
+  }
+}
 
 export function useHostRepoMetadata(args: {
   client: RpcClient | null
@@ -20,9 +41,11 @@ export function useHostRepoMetadata(args: {
     fetchRepoMetadataInFlightRef,
     fetchRepoMetadataPendingRef,
     repoMetadataFetchedAtRef,
-    setRepoColorsByName,
-    setRepoIconsByName,
-    setRepoIdsByName
+    setHostLabelById,
+    setHostHealthById,
+    setDesktopRepos,
+    setHostPlatform,
+    setRepoHostIdByRepoId
   } = state
 
   const fetchRepoMetadata = useCallback(
@@ -46,29 +69,42 @@ export function useHostRepoMetadata(args: {
       try {
         do {
           fetchRepoMetadataPendingRef.current.delete(requestClient)
-          const repoResponse = await requestClient.sendRequest('repo.list')
-          if (clientRef.current !== requestClient || hostId !== requestHostId || !repoResponse.ok) {
+          const repoReply = await settledMetadataReply(() =>
+            hostRepoCatalogRead.request(requestClient)
+          )
+          if (clientRef.current !== requestClient || hostId !== requestHostId) {
             return
           }
-          const repoResult = (repoResponse as RpcSuccess).result as { repos: RepoSummary[] }
+          const repos = repoReply && hostRepoCatalogRead.interpret(repoReply)
+          if (!repos || !repos.accepted) {
+            return
+          }
+          const catalog = repos.value
           repoMetadataFetchedAtRef.current = Date.now()
-          setCachedRepos(requestHostId, repoResult.repos)
-          setRepoColorsByName(
-            new Map(
-              repoResult.repos.map((repo) => [
-                repo.displayName,
-                repo.badgeColor || repoColor(repo.displayName)
-              ])
-            )
-          )
-          setRepoIconsByName(
-            new Map(
-              repoResult.repos.flatMap((repo) =>
-                repo.repoIcon ? [[repo.displayName, repo.repoIcon] as const] : []
-              )
-            )
-          )
-          setRepoIdsByName(new Map(repoResult.repos.map((repo) => [repo.displayName, repo.id])))
+          setCachedRepos(requestHostId, catalog)
+          setDesktopRepos(catalog.map(desktopSectionRepo))
+          setRepoHostIdByRepoId(buildRepoHostIdByRepoId(catalog))
+          // Why: rows name their host when the list spans hosts or an SSH host may be unhealthy,
+          // so a local-only catalog never pays for the label lookups. Counted over repos, not the
+          // id-keyed map: one repo id registered on two hosts is two hosts.
+          const hostIds = new Set(catalog.map((repo) => getRepoExecutionHostId(repo)))
+          const hasSshHost = [...hostIds].some((id) => parseExecutionHostId(id)?.kind === 'ssh')
+          if (hostIds.size > 1 || hasSshHost) {
+            const [{ sshTargetSummaries, hostLabelById }, hostPlatform] = await Promise.all([
+              readHostSshTargetLabels(requestClient),
+              settledMetadataReply(() => hostPlatformRead.request(requestClient))
+            ])
+            if (clientRef.current !== requestClient || hostId !== requestHostId) {
+              return
+            }
+            setHostHealthById(buildSshHostHealthById(sshTargetSummaries))
+            setHostLabelById(hostLabelById)
+            setHostPlatform(acceptedMetadata(hostPlatform, hostPlatformRead.interpret) ?? null)
+          } else {
+            // Why: a host that left the catalog must not keep badging rows that still name it.
+            setHostHealthById(new Map())
+            setHostLabelById(new Map())
+          }
         } while (fetchRepoMetadataPendingRef.current.has(requestClient))
       } catch {
         // Repo metadata is decorative; the next refresh can retry.
