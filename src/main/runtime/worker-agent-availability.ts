@@ -19,6 +19,7 @@ import type { OrcaRuntimeService } from './orca-runtime'
 import { resolveLocalProjectRuntimeForRepo } from '../project-runtime-git-options'
 import { agentLaunchPlatformForScope } from './agent-launch-scope-runtime'
 import { isTuiAgentEnabled } from '../../shared/tui-agent-selection'
+import { getRepoSshConnectionId } from '../../shared/execution-host'
 
 export function validateWorkerAgentEnabled(
   agent: TuiAgent,
@@ -43,17 +44,18 @@ export async function validateWorkerAgentForRepo(
 ): Promise<void> {
   runtime.validateOrchestrationAgentLauncher(agent)
   const repo = await runtime.showRepo(repoSelector)
+  const connectionId = getRepoSshConnectionId(repo)
   await validateWorkerAgentAvailability({
     agent,
     settings: store.getSettings(),
     repo,
-    projectRuntime: repo.connectionId ? undefined : resolveLocalProjectRuntimeForRepo(store, repo),
+    projectRuntime: connectionId ? undefined : resolveLocalProjectRuntimeForRepo(store, repo),
     platform: agentLaunchPlatformForScope(store, {
       id: '',
       folderWorkspace: null,
       repo,
       path: repo.path,
-      connectionId: repo.connectionId ?? null
+      connectionId
     })
   })
 }
@@ -69,8 +71,9 @@ export async function validateWorkerAgentAvailability(args: {
   const localRuntimeKind =
     projectRuntime?.status === 'resolved' ? projectRuntime.runtime.kind : undefined
   let detected: string[]
-  if (repo.connectionId) {
-    throw new SshHostNotServedError(repo.connectionId)
+  const connectionId = getRepoSshConnectionId(repo)
+  if (connectionId) {
+    throw new SshHostNotServedError(connectionId)
   } else {
     detected = await detectInstalledAgentsWithShellPathHydration(
       { projectRuntime },

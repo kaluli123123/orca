@@ -74,6 +74,31 @@ describe('validateOrchestrationAgentLauncherForRepo', () => {
     }
   )
 
+  it('rejects an executionHostId-only SSH target without probing this client', async () => {
+    const runtime = createRuntime()
+    vi.spyOn(runtime, 'showRepo').mockResolvedValue({ ...repo(), executionHostId: 'ssh:remote' })
+
+    await expect(
+      runtime.validateOrchestrationAgentLauncherForRepo('codex', 'repo-1')
+    ).rejects.toMatchObject({ code: 'ssh_host_not_served', connectionId: 'remote' })
+    expect(detectInstalledAgents).not.toHaveBeenCalled()
+    expect(resolveLocalProjectRuntimeForRepo).not.toHaveBeenCalled()
+  })
+
+  it('ignores a stale SSH connection beside explicit local ownership', async () => {
+    const runtime = createRuntime()
+    vi.spyOn(runtime, 'showRepo').mockResolvedValue({
+      ...repo('stale-remote'),
+      executionHostId: 'local'
+    })
+    detectInstalledAgents.mockResolvedValue(['codex'])
+
+    await expect(
+      runtime.validateOrchestrationAgentLauncherForRepo('codex', 'repo-1')
+    ).resolves.toBeUndefined()
+    expect(resolveLocalProjectRuntimeForRepo).toHaveBeenCalled()
+  })
+
   it.each([
     ['native', undefined, ['codex']],
     ['wsl', { status: 'resolved', runtime: { kind: 'wsl', distro: 'Ubuntu' } }, ['codex']]

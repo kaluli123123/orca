@@ -48,6 +48,8 @@ orca orchestration worker-start --task <taskId> --worktree current --agent claud
 
 Worker starts check launcher availability on the execution host before creating a local dispatch or terminal. A missing launcher returns `agent_not_available`; an unavailable WSL host remains `remote_runtime_unavailable`, not proof that the agent is absent. Managed remote hosts perform their own check. Legacy SSH target routing that this process does not serve returns `ssh_host_not_served` without probing local tools.
 
+The repository's execution-host identity determines where the check belongs, even when no legacy SSH connection field is stored. New worktrees check the selected destination repository before creating the worktree.
+
 Wait for completions (process every message in a Delivery, then ack):
 
 ```bash
