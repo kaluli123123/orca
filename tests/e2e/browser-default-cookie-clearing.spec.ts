@@ -6,7 +6,7 @@ test.describe('default browser cookie clearing', () => {
     await waitForSessionReady(orcaPage)
   })
 
-  test('remains available after clearing the default profile cookies', async ({ orcaPage }) => {
+  test('remains available after clearing the default profile cookies', async ({ orcaPage }, testInfo) => {
     await orcaPage.evaluate(() => {
       const state = window.__store!.getState()
       state.openSettingsTarget({ pane: 'browser', repoId: null })
@@ -21,6 +21,7 @@ test.describe('default browser cookie clearing', () => {
     const successToasts = orcaPage.locator('[data-sonner-toast][data-type="success"]')
 
     await expect(clearButton).toBeEnabled()
+    await orcaPage.screenshot({ path: testInfo.outputPath('before-clearing.png') })
     await clearButton.click()
     await expect(successToasts).toHaveCount(1, { timeout: 10_000 })
     await expect(clearButton).toBeEnabled()
@@ -33,5 +34,6 @@ test.describe('default browser cookie clearing', () => {
     await clearButton.click()
     await expect(successToasts).toHaveCount(1, { timeout: 10_000 })
     await expect(clearButton).toBeEnabled()
+    await orcaPage.screenshot({ path: testInfo.outputPath('after-repeated-clearing.png') })
   })
 })
