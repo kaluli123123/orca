@@ -17,7 +17,6 @@ import {
   type WorkerStartModeReceipt
 } from '../../orchestration-worker-start-mode'
 import { EXISTING_WORKTREE_SETUP, placeWorkerAgent } from './worker-start-agent-placement'
-import type { WorkerAgentPlacement } from './worker-start-agent-placement'
 import { awaitStructuredWorkerSetupGate } from './worker-start-structured-setup-gate'
 import { assertOrchestrationWorktreeCreationSupported } from './folder-worktree-placement'
 import { resolveWorkerWorktreeCreationTarget } from './worker-worktree-creation'
@@ -115,7 +114,7 @@ export async function startLocalWorker(args: {
       existingPlacement: 'current or an exact existing folder workspace'
     })
   }
-  let resolvedWorktree: WorkerAgentPlacement['worktree'] | undefined = creationTarget
+  let resolvedWorktree: { id: string; repoId: string } | undefined = creationTarget
     ? undefined
     : requestedWorktree === 'current'
       ? await runtime.showManagedTerminalWorkspace(`id:${coordinatorWorktreeId}`)

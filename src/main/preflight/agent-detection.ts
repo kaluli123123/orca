@@ -16,6 +16,7 @@ import {
 } from '../ipc/preflight-runtime-target'
 
 export type { PreflightRuntimeContext }
+import { hydrateShellPathForAgentDetection } from '../ipc/agent-detection-shell-path'
 import {
   execCommandInWslOrThrow,
   execLocalPreflightCommandOrThrow,

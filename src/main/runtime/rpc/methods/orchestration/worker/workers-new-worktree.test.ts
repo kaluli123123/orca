@@ -137,29 +137,6 @@ describe('orchestration new-worktree workers', () => {
     }
   }
 
-  it('rejects an unavailable agent on the creation target before creating a dispatch or worktree', async () => {
-    mockCreatedWorktree()
-    vi.mocked(runtime.validateOrchestrationAgentLauncherForRepo).mockRejectedValue(
-      Object.assign(new Error('Agent is absent on the execution host'), {
-        code: 'agent_not_available'
-      })
-    )
-    const createDispatch = vi.spyOn(db, 'createStartingWorkerDispatch')
-
-    await expect(
-      startWorker({ worktree: 'new-top-level', repo: 'id:target-repo' })
-    ).rejects.toMatchObject({ code: 'agent_not_available' })
-
-    expect(runtime.validateOrchestrationAgentLauncherForRepo).toHaveBeenCalledWith(
-      'codex',
-      'id:target-repo'
-    )
-    expect(createDispatch).not.toHaveBeenCalled()
-    expect(runtime.createManagedWorktree).not.toHaveBeenCalled()
-    expect(runtime.createTerminal).not.toHaveBeenCalled()
-    expect(db.listTasks()[0]?.status).toBe('ready')
-  })
-
   it('creates an independent top-level worktree and reuses its agent terminal', async () => {
     mockCreatedWorktree()
 

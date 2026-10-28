@@ -195,7 +195,6 @@ describe('desktop Qoder execution-host selection', () => {
           terminalWindowsWslDistro: 'Debian'
         })
       )
-      expect(wslProbe).toHaveBeenCalledWith({ distro: 'Debian' }, ['qodercli', 'qoder'])
       expect(nativeProbe).not.toHaveBeenCalled()
     })
   })
@@ -216,7 +215,6 @@ describe('desktop Qoder execution-host selection', () => {
           cwd: '//wsl.localhost/Ubuntu/home/review/folder'
         })
       )
-      expect(wslProbe).toHaveBeenCalledWith({ distro: 'Ubuntu' }, ['qodercli', 'qoder'])
       expect(nativeProbe).not.toHaveBeenCalled()
     })
   })

@@ -133,7 +133,17 @@ describe('preflight', () => {
       timedOut: false
     })
     const context = {
-      projectRuntime: { status: 'resolved', runtime: { kind: 'wsl', distro: 'Ubuntu' } }
+      projectRuntime: {
+        status: 'resolved',
+        runtime: {
+          kind: 'wsl',
+          hostPlatform: 'wsl',
+          projectId: 'repo-1',
+          distro: 'Ubuntu',
+          reason: 'project-override',
+          cacheKey: 'repo-1'
+        }
+      }
     } as const
 
     await expect(
