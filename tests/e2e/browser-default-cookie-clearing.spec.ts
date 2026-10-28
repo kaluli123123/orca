@@ -6,7 +6,9 @@ test.describe('default browser cookie clearing', () => {
     await waitForSessionReady(orcaPage)
   })
 
-  test('remains available after clearing the default profile cookies', async ({ orcaPage }, testInfo) => {
+  test('remains available after clearing the default profile cookies', async ({
+    orcaPage
+  }, testInfo) => {
     await orcaPage.evaluate(() => {
       const state = window.__store!.getState()
       state.openSettingsTarget({ pane: 'browser', repoId: null })
@@ -26,10 +28,7 @@ test.describe('default browser cookie clearing', () => {
     await expect(successToasts).toHaveCount(1, { timeout: 10_000 })
     await expect(clearButton).toBeEnabled()
 
-    // Why: the regression left the button disabled after a successful clear
-    // (#14678) — a single click can't catch that, so clear again. Wait for
-    // the first toast to fully dismiss first, so a stale count can't make
-    // the second wait pass (or race-timeout) on the wrong toast.
+    // Dismiss the first toast so the second request needs its own completion signal.
     await expect(successToasts).toHaveCount(0, { timeout: 10_000 })
     await clearButton.click()
     await expect(successToasts).toHaveCount(1, { timeout: 10_000 })

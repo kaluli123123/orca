@@ -144,7 +144,6 @@ describe('cookie-import Google disclosure footer', () => {
     expect((clearButton as HTMLButtonElement | null)?.disabled).toBe(false)
     expect(clearButton?.getAttribute('aria-label')).toBe('Clear default cookies')
   })
-
 })
 
 function dropdownMenuStubs(): Record<string, unknown> {
