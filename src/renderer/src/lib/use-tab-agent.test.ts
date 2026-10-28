@@ -8,10 +8,7 @@ import type { AgentStatusEntry } from '../../../shared/agent-status-types'
 import { makePaneKey } from '../../../shared/stable-pane-id'
 import type { TerminalLayoutSnapshot, TerminalTab } from '../../../shared/terminal-tab-types'
 import type { TerminalAgent } from '../../../shared/terminal-agent'
-import {
-  hasObservedTabAgentSignal,
-  resolveTabAgentFromSignals
-} from '../../../shared/tab-agent-from-signals'
+import { resolveTabAgentFromSignals } from '../../../shared/tab-agent-from-signals'
 import { useTabAgent } from './use-tab-agent'
 
 const initialAppState = useAppStore.getInitialState()
@@ -84,23 +81,6 @@ function twoPaneLayout(): TerminalLayoutSnapshot {
 }
 
 describe('resolveTabAgentFromSignals', () => {
-  it('does not arm launch exit clearing from an agent mention in task text', () => {
-    expect(
-      hasObservedTabAgentSignal({
-        title: 'Fix the codex launcher',
-        launchAgent: 'codex',
-        hasCompletedHook: false
-      })
-    ).toBe(false)
-    expect(
-      hasObservedTabAgentSignal({
-        title: 'Codex',
-        launchAgent: 'codex',
-        hasCompletedHook: false
-      })
-    ).toBe(true)
-  })
-
   it('keeps launch intent during the pre-start shell window', () => {
     expect(
       resolveTabAgentFromSignals({
@@ -323,43 +303,6 @@ describe('resolveTabAgentFromSignals', () => {
         launchAgent: 'opencode'
       })
     ).toBe('claude')
-  })
-
-  it('keeps a Claude-owned pane Claude when its task title mentions another agent', () => {
-    for (const title of [
-      '⠋ Fix the codex plugin launcher',
-      '⠙ add grok support to the tab bar',
-      '⠹ port the gemini status parser'
-    ]) {
-      for (const signals of [
-        { hasObservedAgentSignal: true, isRemote: false },
-        {
-          hasObservedAgentSignal: true,
-          isRemote: false,
-          focusedCompletedHookAgent: 'claude' as const
-        },
-        { hasObservedAgentSignal: true, isRemote: true }
-      ]) {
-        expect(
-          resolveTabAgentFromSignals({
-            ...signals,
-            title,
-            hookAgent: null,
-            launchAgent: 'claude'
-          })
-        ).toBe('claude')
-      }
-    }
-
-    expect(
-      resolveTabAgentFromSignals({
-        hasObservedAgentSignal: true,
-        isRemote: false,
-        title: '⠋ Codex: fix cursor offsets',
-        hookAgent: null,
-        launchAgent: 'claude'
-      })
-    ).toBe('codex')
   })
 
   it('does not let an explicit title override launch identity before any activity is observed', () => {

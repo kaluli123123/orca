@@ -48,7 +48,7 @@ async function openClaudeTab(
     const state = store.getState()
     const tab = state.createTab(worktreeId, undefined, undefined, { launchAgent: 'claude' })
     state.setActiveTab(tab.id)
-    state.setActiveTabType('terminal')
+    state.setActiveTabType('terminal', worktreeId)
     return tab.id
   }, worktreeId)
   await waitForActiveTerminalManager(page)
