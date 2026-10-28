@@ -34,7 +34,7 @@ export function useNativeChatComposerHandle(
     ...pasteArgs
   } = args
   const addressPreviews = useNativeChatAddressPreviews({
-    scopeKey: JSON.stringify([args.attachmentScopeKey, args.targetKey]),
+    scopeKey: args.attachmentScopeKey ?? '',
     draft,
     inputRef: textareaRef,
     enabled: addressPreviewsEnabled

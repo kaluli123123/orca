@@ -141,12 +141,10 @@ const NativeChatComposerPane = forwardRef<NativeChatComposerHandle, NativeChatCo
       structuredWorktreeId: structuredTransport?.worktreeId
     })
 
-    const resolveTarget = useCallback((): NativeChatResolvedTarget | null => {
-      if (!targetPtyId) {
-        return null
-      }
-      return { ptyId: targetPtyId }
-    }, [targetPtyId])
+    const resolveTarget = useCallback(
+      (): NativeChatResolvedTarget | null => (targetPtyId ? { ptyId: targetPtyId } : null),
+      [targetPtyId]
+    )
 
     const attachments = useNativeChatComposerAttachments({
       attachmentScopeKey: draftScopeKey,
@@ -201,7 +199,7 @@ const NativeChatComposerPane = forwardRef<NativeChatComposerHandle, NativeChatCo
       caret,
       setDraft,
       setCaret,
-      addressPreviewsEnabled: isVisible && !inputOwnedByCard && !disabled,
+      addressPreviewsEnabled: isVisible && !inputOwnedByCard,
       setActiveSuggestion,
       targetKey: composerTargetKey,
       agent,
