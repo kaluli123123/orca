@@ -1,10 +1,10 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   getBrowserMobileDrivenPageIds,
-  getDriverForBrowserPage,
   hasMobileDriverForAnyBrowserPage,
-  hydrateBrowserDrivers,
   isBrowserPageMobileDriven,
+  getDriverForBrowserPage,
+  hydrateBrowserDrivers,
   onBrowserDriverChange,
   setDriverForBrowserPage
 } from './browser-mobile-driver-state'
