@@ -1,8 +1,10 @@
 import type { AgentJournalRenderItem } from '../../shared/agent-session-journal-types'
 import { isRootAgentJournalItem } from '../../shared/agent-session-journal-producer'
 import { readAgentJournalTurn } from '../../shared/agent-session-turn-record'
+import { parseAgentJournalItemKey } from '../../shared/agent-session-journal-item-key'
 import {
   readCodexErrorInfo,
+  readCodexErrorMessage,
   readCodexErrorWillRetry,
   readCodexTurnId
 } from './codex-structured-thread-facts'
@@ -33,6 +35,14 @@ export function codexTransientTurnError(
   ) {
     return null
   }
+  const identity = parseAgentJournalItemKey(turnItem.itemId)
+  const providerTurnId =
+    turn.providerTurnId ??
+    (identity?.provider === 'legacy' &&
+    identity.agent === 'codex' &&
+    identity.recordId === `turn-lifecycle:${turn.turnId}`
+      ? turn.turnId
+      : null)
   for (let index = items.length - 1; index >= 0; index--) {
     const item = items[index]
     const frame = item?.body.kind === 'status' ? item.body.providerFrame : undefined
@@ -60,11 +70,18 @@ export function codexTransientTurnError(
     if (readCodexErrorWillRetry(payload)) {
       continue
     }
-    if (!turn.providerTurnId || readCodexTurnId(payload) !== turn.providerTurnId) {
+    if (!providerTurnId || readCodexTurnId(payload) !== providerTurnId) {
       return null
     }
     const info = readCodexErrorInfo(payload)
-    if (!info || !TEMPORARY_ERRORS.has(info.error)) {
+    if (
+      !info ||
+      (!TEMPORARY_ERRORS.has(info.error) &&
+        !(
+          info.error === 'other' &&
+          /^stream disconnected before completion(?::|$)/.test(readCodexErrorMessage(payload) ?? '')
+        ))
+    ) {
       return null
     }
     return info.status == null ||

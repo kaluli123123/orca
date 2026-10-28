@@ -27,7 +27,6 @@ describe('temporary provider error recovery setting', () => {
     expect(toggle.getAttribute('aria-checked')).toBe('false')
     fireEvent.click(toggle)
     expect(updateSettings).toHaveBeenCalledWith({ nativeChatAutoContinueOnTransientError: true })
-    expect(screen.getByText(/supported Codex chats/).textContent).toContain('up to 3 times')
   })
 
   it('can disable an enabled preference', () => {

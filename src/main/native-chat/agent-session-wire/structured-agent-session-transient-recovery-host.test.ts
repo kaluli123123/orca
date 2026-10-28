@@ -16,7 +16,7 @@ import { TRANSIENT_RECOVERY_MESSAGE } from './structured-agent-session-transient
 
 afterEach(() => vi.useRealTimers())
 
-async function failTurn(error = 'serverOverloaded') {
+async function failTurn(error = 'serverOverloaded', message = 'Provider unavailable') {
   const { host, store } = hostTestState()
   const session = host.collaboratorsForTests().sessions.get(SESSION)!
   const fence = store.getRecord(SESSION)!.lease.runtimeFence
@@ -35,7 +35,7 @@ async function failTurn(error = 'serverOverloaded') {
   const head = JSON.stringify({
     turnId: 'native-turn',
     willRetry: false,
-    error: { message: 'Provider unavailable', codexErrorInfo: error }
+    error: { message, codexErrorInfo: error }
   })
   await session.journal.appendItem(
     { provider: 'orca', clientMessageId: 'native-error' },
@@ -58,19 +58,25 @@ async function failTurn(error = 'serverOverloaded') {
   await host.flushStreamedEvents(SESSION)
 }
 
-it('continues a native capacity failure through the real host sender without any renderer', async () => {
-  await attach()
-  const { host, dispatch } = hostTestState()
-  host.deps.transientRecovery = { enabled: () => true }
-  vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
-  await failTurn()
-  await vi.advanceTimersByTimeAsync(10_000)
-  await vi.waitFor(() => expect(dispatch).toHaveBeenCalledOnce())
-  expect(dispatch.mock.calls[0]![0].body.blocks).toEqual([
-    { type: 'text', text: TRANSIENT_RECOVERY_MESSAGE }
-  ])
-  expect(dispatch.mock.calls[0]![0].sessionId).toBe(SESSION)
-})
+it.each([
+  ['serverOverloaded', 'Provider unavailable'],
+  ['other', 'stream disconnected before completion: stream closed before response.completed']
+])(
+  'continues a native %s failure through the real host sender without any renderer',
+  async (error, message) => {
+    await attach()
+    const { host, dispatch } = hostTestState()
+    host.deps.transientRecovery = { enabled: () => true }
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+    await failTurn(error, message)
+    await vi.advanceTimersByTimeAsync(10_000)
+    await vi.waitFor(() => expect(dispatch).toHaveBeenCalledOnce())
+    expect(dispatch.mock.calls[0]![0].body.blocks).toEqual([
+      { type: 'text', text: TRANSIENT_RECOVERY_MESSAGE }
+    ])
+    expect(dispatch.mock.calls[0]![0].sessionId).toBe(SESSION)
+  }
+)
 
 it.each(['disabled', 'manual-send', 'stop', 'close', 'quota', 'dispatch-owned', 'option', 'goal'])(
   'does not auto-send after %s',
