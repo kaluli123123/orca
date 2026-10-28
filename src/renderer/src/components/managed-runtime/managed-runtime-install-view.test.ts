@@ -25,8 +25,11 @@ const op = (patch: Partial<ManagedRuntimeOperation>): ManagedRuntimeOperation =>
   ...patch
 })
 
+const viewOf = (patch: Partial<ManagedRuntimeInstallState>) =>
+  managedRuntimeInstallView({ kind: 'known', state: { ...idle, ...patch } }, 'Fake')
+
 function shown(patch: Partial<ManagedRuntimeInstallState>) {
-  const view = managedRuntimeInstallView({ kind: 'known', state: { ...idle, ...patch } }, 'Fake')
+  const view = viewOf(patch)
   return [view.status, view.action?.label ?? null, view.error, view.note]
 }
 
@@ -70,21 +73,23 @@ describe('managedRuntimeInstallView', () => {
       null,
       null
     ])
-    // A failed install says only why, beside Try again.
     expect(shown({ operation: op({ phase: 'failed', error: 'No space left.' }) })).toEqual([
       null,
       'Try again',
       'No space left.',
       null
     ])
-    // A healthy copy offers no Reinstall; Remove is its only action.
-    expect(shown(installed)).toEqual(['Installed.', null, null, null])
-    expect(shown({ ...installed, installedVersion: '1.2.0', installedCurrent: false })).toEqual([
-      'Installed.',
-      'Update',
-      null,
-      null
-    ])
+    expect(shown(installed)).toEqual(['Installed', null, null, null])
+    expect(viewOf({ ...installed, canRemove: true })).toMatchObject({
+      removable: true,
+      menuAction: { kind: 'install', label: 'Reinstall Fake' }
+    })
+    const update = viewOf({ ...installed, installedVersion: '1.2.0', installedCurrent: false })
+    expect(update).toMatchObject({
+      status: 'Installed',
+      action: null,
+      menuAction: { label: 'Update' }
+    })
     const removal = (patch: Partial<ManagedRuntimeOperation>) =>
       managedRuntimeInstallView(
         {
@@ -104,13 +109,11 @@ describe('managedRuntimeInstallView', () => {
       removable: false,
       removing: true
     })
-    // A refused removal keeps the files, so Remove stays offered beside the host's reason.
     expect(removal({ phase: 'failed', error: 'Fake could not be stopped.' })).toMatchObject({
-      status: 'Installed.',
+      status: 'Installed',
       error: 'Fake could not be stopped.',
       removable: true
     })
-    // A damaged copy is removable too, so a broken install never leaves Settings without an exit.
     const damaged = { kind: 'known' as const, state: { ...idle, damaged: true, canRemove: true } }
     expect(managedRuntimeInstallView(damaged, 'Fake').removable).toBe(true)
     expect(shown({ available: false, version: null })).toEqual([
@@ -119,12 +122,12 @@ describe('managedRuntimeInstallView', () => {
       null,
       null
     ])
-    expect(shown({ damaged: true })).toEqual([
-      'This copy of Fake is damaged.',
-      'Reinstall',
-      null,
-      null
-    ])
+    expect(viewOf({ damaged: true })).toMatchObject({
+      status: 'This copy of Fake is damaged.',
+      action: { label: 'Reinstall' },
+      prominent: true,
+      menuAction: null
+    })
     const external = { source: 'external' as const }
     expect(shown(external)).toEqual([
       'Uses the copy of Fake found on this host.',

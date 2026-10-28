@@ -33,6 +33,7 @@ import {
   resolveGitHubReviewPushTarget
 } from './hosted-review-push-target'
 import { persistWorktreeMeta } from './worktree-meta-persist'
+import { withPendingSidebarRowWrites } from '@/lib/sidebar-pending-layer'
 import { isRuntimeSelectorNotFoundError } from '../listing/runtime-worktree-rpc-errors'
 import { runtimeTargetForWorktreeOwner } from '../listing/worktree-owner-target'
 import { runtimeTargetForWorkspaceOwner } from '@/lib/resolve-owner'
@@ -42,7 +43,7 @@ export function createUpdateWorktreeMeta(
   set: WorktreeSliceSet,
   get: WorktreeSliceGet
 ): WorktreeSlice['updateWorktreeMeta'] {
-  return async (worktreeId, updates, options) => {
+  const update: WorktreeSlice['updateWorktreeMeta'] = async (worktreeId, updates, options) => {
     const shouldApplyUpdate = options?.shouldApply
     const requestedHostId = options?.executionHostId
     const existingWorktree = findKnownWorktreeById(get(), worktreeId, requestedHostId)
@@ -70,8 +71,7 @@ export function createUpdateWorktreeMeta(
         return { ok: true }
       }
       try {
-        // Why: a rejected folder update reconciles the optimistic write away, so
-        // reporting ok would show the dialog a save that silently undid itself.
+        // Rejected folder updates revert optimistic state; report failure or the dialog closes on an undone save.
         const updated = await get().updateFolderWorkspace(
           workspaceScope.folderWorkspaceId,
           folderUpdates,
@@ -254,7 +254,7 @@ export function createUpdateWorktreeMeta(
       return { ok: true }
     }
     if (hasHostedReviewLinkUpdates(enriched)) {
-      bumpHostedReviewLinkMutationGeneration(worktreeId)
+      bumpHostedReviewLinkMutationGeneration(worktreeId, worktreeForUpdate)
     }
 
     try {
@@ -292,10 +292,24 @@ export function createUpdateWorktreeMeta(
       }
       console.error('Failed to update worktree meta:', err)
       void get().fetchWorktrees(getRepoIdFromWorktreeId(worktreeId))
-      // Why: the refetch above reverts the optimistic write, so a caller that
-      // closes its surface on this path shows the user a save that undid itself.
+      // Refetch reverted the optimistic write; report failure so callers do not close on an undone save.
       return { ok: false, error: err instanceof Error ? err.message : String(err) }
     }
     return { ok: true }
   }
+  // A conditional write may not apply, so only an unconditional one shows ahead of main.
+  return (worktreeId, updates, options) =>
+    options?.shouldApply
+      ? update(worktreeId, updates, options)
+      : withPendingSidebarRowWrites(
+          () => [
+            {
+              worktreeId,
+              updates,
+              executionHostId:
+                options?.executionHostId ?? findKnownWorktreeById(get(), worktreeId)?.hostId
+            }
+          ],
+          () => update(worktreeId, updates, options)
+        )
 }

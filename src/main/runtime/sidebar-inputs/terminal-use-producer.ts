@@ -1,9 +1,9 @@
 import {
   readWorkspaceRecord,
   writeWorkspaceRecord,
-  type WorkspaceRecordStore,
-  type WorkspaceRef
+  type WorkspaceRecordStore
 } from './sort-stamp-records'
+import type { AgentPaneWorkspace } from '../../agent-hooks/agent-transition-detector'
 
 /** At most one write per workspace per minute; cleanup judges idleness in days. */
 export const TERMINAL_USE_THROTTLE_MS = 60_000
@@ -18,14 +18,11 @@ export type TerminalUseStore = WorkspaceRecordStore<
 export type TerminalUseSources = {
   store: () => TerminalUseStore | null
   /** The workspace a PTY belongs to on this host, or null when this host does not know it. */
-  workspaceOfPty: (ptyId: string) => WorkspaceRef | null
+  workspaceOfPty: (ptyId: string) => AgentPaneWorkspace | null
   isWriteFenced: (worktreeId: string) => boolean
 }
 
-/**
- * Writes when a workspace's terminal was last used, on the host that owns it, for every device:
- * input from the window, a phone or the CLI, and a phone attaching. Output never counts.
- */
+/** Stamp terminal use on the owning host for window/phone/CLI input and phone attach; output never counts. */
 export class TerminalUseProducer {
   private readonly writtenAt = new Map<string, number>()
 
