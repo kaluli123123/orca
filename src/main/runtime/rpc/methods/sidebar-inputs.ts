@@ -41,7 +41,12 @@ export const SIDEBAR_INPUT_METHODS = [
     name: 'sidebarInputs.workspaceRows',
     permission: 'workspace',
     params: null,
-    handler: async (_params, { runtime }) => requireSwitchedOn(runtime.workspaceRows).snapshot()
+    handler: async (_params, { runtime }) => {
+      const rows = requireSwitchedOn(runtime.workspaceRows)
+      // A one-shot read covers every scan asked for before it, as the fresh listing it replaced did.
+      await rows.settled()
+      return rows.snapshot() ?? { revision: rows.revision.value, rows: {} }
+    }
   }),
   defineMethod({
     name: 'sidebarInputs.reviewFacts',
@@ -61,15 +66,18 @@ export const SIDEBAR_INPUT_METHODS = [
     name: 'sidebarInputs.read',
     permission: 'workspace',
     params: SidebarInputsReadParams,
-    // The feed is this host's own view. A delegated phone lists through its own desktop's feed,
-    // which carries this host's rows; other desktops and web clients build their own view.
+    // Serve only this host's window/own phone; delegated phones use their desktop feed, while other desktops/web build their own.
     handler: async (params, context) => {
       const feed = requireSwitchedOn(context.runtime.sidebarInputsFeed)
       const { connectionId } = context
-      if (!isHostOwnPhone(context) || connectionId === undefined) {
-        throw Object.assign(new Error('Only this host’s own phone reads its sidebar feed.'), {
-          code: 'forbidden'
-        })
+      const ownView = isHostOwnPhone(context) || context.caller?.kind === 'desktop'
+      if (!ownView || connectionId === undefined) {
+        throw Object.assign(
+          new Error('Only this host’s own window and phone read its sidebar feed.'),
+          {
+            code: 'forbidden'
+          }
+        )
       }
       // A connection already closed has run its cleanups; subscribing it now would never release.
       if (context.signal?.aborted) {
@@ -100,7 +108,7 @@ export const SIDEBAR_INPUT_METHODS = [
     permission: 'workspace',
     params: null,
     handler: async (_params, { runtime }) =>
-      requireSwitchedOn(runtime.workspaceCreations).snapshot()
+      requireSwitchedOn(runtime.workspaceLifecycle).creationsSnapshot()
   }),
   defineMethod({
     name: 'sidebarInputs.reportView',
@@ -127,7 +135,7 @@ export const SIDEBAR_INPUT_METHODS = [
     name: 'ui.setCollapsed',
     permission: 'workspace',
     params: SetCollapsedParams,
-    // Why the same callers as ui.set: collapsedGroups is not pairing-local, so both writes share one view.
+    // Match ui.set callers because collapsedGroups is a shared-view preference.
     handler: (params, { runtime }) =>
       setCollapsedSection(runtime, requireSwitchedOn(runtime.collapseWriteOrder), params)
   })

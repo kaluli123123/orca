@@ -4,18 +4,25 @@ import { ChevronLeft, Folder, GitBranch, MoreHorizontal, PanelLeftOpen } from 'l
 import { MobileSessionHeaderIconButton } from './MobileSessionHeaderIconButton'
 import { MobileSessionTabStrip } from './MobileSessionTabStrip'
 import { StatusDot } from '../components/StatusDot'
-import { colors } from '../theme/mobile-theme'
 import { styles } from './mobile-session-styles'
+import { useMobileColorScheme } from '../theme/use-mobile-color-scheme'
 import { useHostSidebarReveal } from '../layout/host-sidebar-reveal'
 import { useResponsiveLayout } from '../layout/responsive-layout'
 import type { MobileSessionController } from './use-mobile-session-controller'
 
-export function MobileSessionHeader({ controller }: { controller: MobileSessionController }) {
+export function MobileSessionHeader({
+  controller,
+  backInRail
+}: {
+  controller: MobileSessionController
+  backInRail: boolean
+}) {
+  useMobileColorScheme()
   const {
     hostId,
     isFolderWorkspaceRoute,
     isFloatingWorkspaceRoute,
-    connState,
+    presentedConnState,
     forceReconnectHost,
     worktreeName,
     activePanel,
@@ -38,25 +45,19 @@ export function MobileSessionHeader({ controller }: { controller: MobileSessionC
     <SafeAreaView style={styles.sessionChrome} edges={['top']}>
       <View style={styles.sessionTopBar}>
         {revealSidebar ? (
-          <Pressable
-            style={({ pressed }) => [styles.backButton, pressed && styles.backButtonPressed]}
-            onPress={revealSidebar}
-            hitSlop={8}
-            accessibilityRole="button"
+          <MobileSessionHeaderIconButton
             accessibilityLabel="Show sidebar"
-          >
-            <PanelLeftOpen size={18} color={colors.textSecondary} />
-          </Pressable>
+            icon={PanelLeftOpen}
+            onPress={revealSidebar}
+          />
         ) : null}
-        <Pressable
-          style={({ pressed }) => [styles.backButton, pressed && styles.backButtonPressed]}
-          onPress={requestLeaveSession}
-          hitSlop={8}
-          accessibilityRole="button"
-          accessibilityLabel="Back to worktrees"
-        >
-          <ChevronLeft size={22} color={colors.textSecondary} strokeWidth={2.2} />
-        </Pressable>
+        {backInRail ? null : (
+          <MobileSessionHeaderIconButton
+            accessibilityLabel="Back to worktrees"
+            icon={ChevronLeft}
+            onPress={requestLeaveSession}
+          />
+        )}
 
         <View
           style={[styles.sessionTitleBlock, tabsInTopBar && styles.sessionTitleBlockBesideTabs]}
@@ -75,7 +76,7 @@ export function MobileSessionHeader({ controller }: { controller: MobileSessionC
             accessibilityRole={showConnectionRetry ? 'button' : undefined}
             accessibilityLabel={showConnectionRetry ? 'Reconnect to desktop' : undefined}
           >
-            <StatusDot state={connState} />
+            <StatusDot state={presentedConnState} />
             <Text style={styles.sessionMetaText} numberOfLines={1}>
               {terminalSummary}
             </Text>
