@@ -57,7 +57,7 @@ async function openClaudeTab(
   return { tabId, ptyId }
 }
 
-test('Claude task titles that mention Codex keep the Claude tab icon', async ({ orcaPage }) => {
+test('Claude task titles that mention Codex keep the Claude tab icon', async ({ orcaPage }, testInfo) => {
   await waitForSessionReady(orcaPage)
   const worktreeId = await waitForActiveWorktree(orcaPage)
   await ensureTerminalVisible(orcaPage)
@@ -73,6 +73,7 @@ test('Claude task titles that mention Codex keep the Claude tab icon', async ({ 
         message: 'the Claude identity title never reached the renderer'
       })
       .toContain(CLAUDE_IDENTITY_OSC_TITLE)
+    await orcaPage.screenshot({ path: testInfo.outputPath('claude-identity.png') })
 
     await sendToTerminal(orcaPage, claude.ptyId, '\r')
     await waitForTerminalOutput(orcaPage, PANE_HOLD_MARKER, 15_000)
@@ -86,6 +87,7 @@ test('Claude task titles that mention Codex keep the Claude tab icon', async ({ 
     const claudeTab = orcaPage.locator(`[data-tab-id="${claude.tabId}"]`)
     await expect(claudeTab.locator('[data-agent-icon="claude"]')).toBeVisible()
     await expect(claudeTab.locator('[data-agent-icon="codex"]')).toHaveCount(0)
+    await orcaPage.screenshot({ path: testInfo.outputPath('codex-task-mention.png') })
   } finally {
     claudeScript.cleanup()
   }
