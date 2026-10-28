@@ -229,9 +229,6 @@ describe('WSL transcript filesystem process client', () => {
     client.dispose()
   })
 
-  // Why: the gate waiter can give up mid-read and the caller's finally closes
-  // right away; a refused close would strand the pinned slot (and its child)
-  // forever once that read settles.
   it('defers a close issued while a read is in flight instead of stranding the slot', async () => {
     const owner = new FakeProcess()
     const factory = vi.fn(() => fakeChild(owner))
@@ -244,7 +241,6 @@ describe('WSL transcript filesystem process client', () => {
 
     const reading = client.read(handle, 0, 4, signal)
     const closing = client.close(handle)
-    // The close waits for the in-flight read; nothing extra was sent yet.
     expect(owner.sent).toHaveLength(2)
 
     owner.respond({ id: owner.sent[1].id, ok: true, value: Buffer.from('data') })
@@ -254,7 +250,6 @@ describe('WSL transcript filesystem process client', () => {
     owner.respond({ id: owner.sent[2].id, ok: true, value: true })
     await expect(closing).resolves.toBeUndefined()
 
-    // The slot returned to the pool instead of leaking pinned.
     const later = client.run<boolean>(
       { operation: 'access', path: '\\\\wsl.localhost\\Ubuntu\\after-close' },
       signal
@@ -294,8 +289,7 @@ describe('WSL transcript filesystem process client', () => {
     await vi.waitFor(() => expect(healthy.sent).toHaveLength(1))
     healthy.respond({ id: healthy.sent[0].id, ok: true, value: true })
     await expect(other).resolves.toBe(true)
-    // The handle died with its killed process — a transport condition, so later
-    // reads surface as a retryable refusal rather than a caller EBADF bug.
+    // Handles die with the helper; report retryable transport failure rather than caller EBADF.
     await expect(client.read(handle, 0, 1, new AbortController().signal)).rejects.toMatchObject({
       name: 'WslTranscriptFsError',
       code: 'unavailable'
@@ -404,7 +398,6 @@ describe('WSL transcript filesystem process client', () => {
       { operation: 'access', path: '\\\\wsl.localhost\\Ubuntu\\killed' },
       new AbortController().signal
     )
-    // A signal-terminated child reports code null; the message must carry the signal.
     child.emit('exit', null, 'SIGKILL')
     await expect(pending).rejects.toMatchObject({
       name: 'WslTranscriptFsError',
@@ -496,8 +489,7 @@ describe('WSL transcript filesystem process entry resolution', () => {
     )
   })
 
-  // Why: this module compiles into a shared rollup chunk under out/main/chunks,
-  // and the scanner service child has no process.resourcesPath to fall back on.
+  // Bundled shared chunks sit below out/main; scanner children lack resourcesPath fallback.
   it('resolves the entry from a shared chunk one level below out/main', () => {
     const moduleDir = join('root', 'out', 'main', 'chunks')
     const target = join('root', 'out', 'main', 'wsl-transcript-fs-process-entry.js')
@@ -520,7 +512,6 @@ describe('WSL transcript filesystem process entry resolution', () => {
     expect(env).toMatchObject({
       ELECTRON_RUN_AS_NODE: '1',
       PATH: 'C:\\bin',
-      // The shared allowlist emits the canonical Windows casing.
       SystemRoot: 'C:\\WINDOWS'
     })
     expect(env).not.toHaveProperty('NODE_OPTIONS')
