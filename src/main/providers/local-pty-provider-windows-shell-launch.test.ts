@@ -10,10 +10,10 @@ const {
   spawnMock,
   prepareMacosTccLoginShellMock,
   resolveAgentForegroundProcessMock,
-  readWindowsConptyProcessIdsMock,
+  readWindowsPtyJobProcessIdsMock,
   killWithDescendantSweepMock,
   isWslAvailableAsyncMock,
-  wslUncDirectoryExistsMock,
+  wslUncDirectoryExistsAsyncMock,
   createShellPromptReadinessProbeMock
 } = vi.hoisted(() => ({
   existsSyncMock: vi.fn(),
@@ -24,10 +24,10 @@ const {
   spawnMock: vi.fn(),
   prepareMacosTccLoginShellMock: vi.fn(),
   resolveAgentForegroundProcessMock: vi.fn(),
-  readWindowsConptyProcessIdsMock: vi.fn(),
+  readWindowsPtyJobProcessIdsMock: vi.fn(),
   killWithDescendantSweepMock: vi.fn(),
   isWslAvailableAsyncMock: vi.fn(),
-  wslUncDirectoryExistsMock: vi.fn(),
+  wslUncDirectoryExistsAsyncMock: vi.fn(),
   createShellPromptReadinessProbeMock: vi.fn()
 }))
 
@@ -38,6 +38,8 @@ vi.mock('fs', () => ({
   mkdirSync: mkdirSyncMock,
   writeFileSync: writeFileSyncMock,
   chmodSync: vi.fn(),
+  renameSync: vi.fn(),
+  rmSync: vi.fn(),
   constants: { X_OK: 1 }
 }))
 
@@ -60,10 +62,7 @@ vi.mock('../pty-descendant-termination', () => ({
   killWithDescendantSweep: killWithDescendantSweepMock
 }))
 
-// Resolve PowerShell family names to deterministic absolute paths (the fs mock
-// above otherwise makes every probe miss). The real resolver — which skips the
-// Store App Execution Alias stub — is covered in
-// windows-powershell-executable.test.ts.
+// The fs mock misses executable probes; pin paths and leave Store-alias coverage to resolver tests.
 const WINDOWS_POWERSHELL_ABS = 'C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe'
 const PWSH7_ABS = 'C:\\Program Files\\PowerShell\\7\\pwsh.exe'
 const CMD_ABS = 'C:\\Windows\\System32\\cmd.exe'
@@ -83,8 +82,9 @@ vi.mock('./agent-foreground-process', () => ({
     resolveAgentForegroundProcessMock(...args)
 }))
 
-vi.mock('./windows-conpty-process-membership', () => ({
-  readWindowsConptyProcessIds: (...args: unknown[]) => readWindowsConptyProcessIdsMock(...args)
+vi.mock('./windows-pty-job-membership', () => ({
+  readWindowsPtyJobProcessIds: (...args: unknown[]) => readWindowsPtyJobProcessIdsMock(...args),
+  isWindowsPtyJobReadable: () => true
 }))
 
 vi.mock('../wsl', () => ({
@@ -103,9 +103,8 @@ vi.mock('../wsl', () => ({
     `\\\\wsl.localhost\\${distro}${path.replace(/\//g, '\\')}`,
   getDefaultWslDistro: () => 'Ubuntu',
   isWslAvailableAsync: () => isWslAvailableAsyncMock(),
-  // Why: WSL worktree validation now asks the distro; these tests use WSL UNC
-  // cwds that are meant to exist, so report them present without spawning wsl.exe.
-  wslUncDirectoryExists: (...args: unknown[]) => wslUncDirectoryExistsMock(...args)
+  // Fixture WSL UNC directories exist; avoid launching wsl.exe to validate them.
+  wslUncDirectoryExistsAsync: (...args: unknown[]) => wslUncDirectoryExistsAsyncMock(...args)
 }))
 
 vi.mock('../shell-prompt-readiness-probe', () => ({
@@ -137,10 +136,10 @@ describe('LocalPtyProvider', () => {
       writeFileSyncMock,
       prepareMacosTccLoginShellMock,
       resolveAgentForegroundProcessMock,
-      readWindowsConptyProcessIdsMock,
+      readWindowsPtyJobProcessIdsMock,
       killWithDescendantSweepMock,
       isWslAvailableAsyncMock,
-      wslUncDirectoryExistsMock,
+      wslUncDirectoryExistsAsyncMock,
       createShellPromptReadinessProbeMock
     })
 
@@ -157,6 +156,34 @@ describe('LocalPtyProvider', () => {
   })
 
   describe('spawn', () => {
+    it('passes the guest Claude pointer and injected-home marker through WSLENV', async () => {
+      Object.defineProperty(process, 'platform', { configurable: true, value: 'win32' })
+      provider.configure({
+        buildSpawnEnv: (_id, env) => ({
+          ...env,
+          CLAUDE_CONFIG_DIR: '/home/fake/.local/share/orca/claude-profiles/a/home',
+          ORCA_CLAUDE_INJECTED_CONFIG_DIR: '/home/fake/.local/share/orca/claude-profiles/a/home',
+          ORCA_CLAUDE_PROFILE_POINTER: '~/.local/share/orca/claude-profiles/selected-wsl-orca'
+        })
+      })
+      await provider.spawn({
+        cols: 80,
+        rows: 24,
+        cwd: '\\\\wsl.localhost\\Ubuntu\\home\\fake\\repo'
+      })
+      const env = spawnMock.mock.calls.at(-1)?.[2].env
+      expect(env.WSLENV.split(':')).toEqual(
+        expect.arrayContaining([
+          'CLAUDE_CONFIG_DIR',
+          'ORCA_CLAUDE_PROFILE_POINTER',
+          'ORCA_CLAUDE_INJECTED_CONFIG_DIR'
+        ])
+      )
+      expect(env.ORCA_CLAUDE_PROFILE_POINTER).toBe(
+        '~/.local/share/orca/claude-profiles/selected-wsl-orca'
+      )
+    })
+
     it('does not pass a Windows Codex home into WSL terminals', async () => {
       Object.defineProperty(process, 'platform', { configurable: true, value: 'win32' })
       provider.configure({
@@ -292,12 +319,12 @@ describe('LocalPtyProvider', () => {
       expect(spawnCall[1]).toEqual([
         '-d',
         'Debian',
-        '--',
+        '--exec',
         'sh',
         '-c',
         expect.stringContaining("cd '/mnt/c/Users/jin/repo'")
       ])
-      expect(spawnCall[1][5]).toContain('exec "\\$_orca_wsl_shell" -l')
+      expect(spawnCall[1][5]).toContain('exec "$_orca_wsl_shell" -l')
       expect(spawnCall[2].env.HISTFILE).toContain('terminal-history-wsl/Debian')
     })
 
@@ -321,13 +348,13 @@ describe('LocalPtyProvider', () => {
         expect(spawnCall[1]).toEqual([
           '-d',
           'Debian',
-          '--',
+          '--exec',
           'sh',
           '-c',
           expect.stringContaining(`cd '${cwd}'`)
         ])
         expect(spawnCall[2].cwd).not.toBe(cwd)
-        expect(wslUncDirectoryExistsMock).not.toHaveBeenCalled()
+        expect(wslUncDirectoryExistsAsyncMock).not.toHaveBeenCalled()
       }
     )
 
@@ -344,7 +371,50 @@ describe('LocalPtyProvider', () => {
         terminalWindowsWslDistro: 'Debian'
       })
 
-      expect(wslUncDirectoryExistsMock).toHaveBeenCalledWith('\\\\wsl.localhost\\Debian\\a')
+      expect(wslUncDirectoryExistsAsyncMock).toHaveBeenCalledWith('\\\\wsl.localhost\\Debian\\a')
+    })
+
+    it('rejects a WSL cwd the distro reports missing without spawning a shell', async () => {
+      Object.defineProperty(process, 'platform', { configurable: true, value: 'win32' })
+      wslUncDirectoryExistsAsyncMock.mockResolvedValue(false)
+      const spawnCallsBefore = spawnMock.mock.calls.length
+
+      await expect(
+        provider.spawn({
+          cols: 80,
+          rows: 24,
+          cwd: '\\\\wsl.localhost\\Debian\\home\\jin\\gone'
+        })
+      ).rejects.toThrow(/does not exist/)
+      expect(wslUncDirectoryExistsAsyncMock).toHaveBeenCalledWith(
+        '\\\\wsl.localhost\\Debian\\home\\jin\\gone'
+      )
+      expect(spawnMock.mock.calls).toHaveLength(spawnCallsBefore)
+    })
+
+    it('rejects a canceled spawn while its WSL cwd probe is still pending', async () => {
+      Object.defineProperty(process, 'platform', { configurable: true, value: 'win32' })
+      const probeStarted = Promise.withResolvers<void>()
+      wslUncDirectoryExistsAsyncMock.mockImplementation(() => {
+        probeStarted.resolve()
+        return new Promise(() => {})
+      })
+      const spawnCallsBefore = spawnMock.mock.calls.length
+
+      const spawn = provider.spawn({
+        cols: 80,
+        rows: 24,
+        cwd: '\\\\wsl.localhost\\Stalled\\home\\jin\\repo',
+        sessionId: 'stalled-wsl-cwd-session'
+      })
+      const canceledSpawn = expect(spawn).rejects.toThrow(
+        'PTY spawn canceled: stalled-wsl-cwd-session'
+      )
+      await probeStarted.promise
+      await provider.shutdown('stalled-wsl-cwd-session', { immediate: true })
+
+      await canceledSpawn
+      expect(spawnMock.mock.calls).toHaveLength(spawnCallsBefore)
     })
 
     it('resolves and persists the default distro for Windows cwd WSL terminals', async () => {
@@ -371,7 +441,7 @@ describe('LocalPtyProvider', () => {
       expect(spawnCall[1]).toEqual([
         '-d',
         'Ubuntu',
-        '--',
+        '--exec',
         'sh',
         '-c',
         expect.stringContaining("cd '/mnt/c/Users/jin/repo'")
@@ -431,6 +501,56 @@ describe('LocalPtyProvider', () => {
       await spawn
       expect(spawnMock).toHaveBeenCalledTimes(callsBeforeSpawn + 1)
       expect(spawnMock.mock.calls.at(-1)?.[0]).toBe(PWSH7_ABS)
+    })
+
+    it('re-reads Windows shell options after a reentrant configuration change', async () => {
+      Object.defineProperty(process, 'platform', { configurable: true, value: 'win32' })
+      const initialPowerShellImplementation = vi.fn(() => 'powershell.exe' as const)
+      const configuredPwshAvailable = vi.fn(() => true)
+      provider.configure({
+        getWindowsShell: () => {
+          provider.configure({
+            getWindowsPowerShellImplementation: () => 'auto',
+            pwshAvailable: configuredPwshAvailable
+          })
+          return 'powershell.exe'
+        },
+        getWindowsPowerShellImplementation: initialPowerShellImplementation
+      })
+
+      await provider.spawn({ cols: 80, rows: 24, cwd: 'C:\\Users\\jin\\repo' })
+
+      expect(initialPowerShellImplementation).not.toHaveBeenCalled()
+      expect(configuredPwshAvailable).toHaveBeenCalledOnce()
+      expect(spawnMock.mock.calls.at(-1)?.[0]).toBe(PWSH7_ABS)
+    })
+
+    it('registers a probe-complete spawn before a later microtask shutdown', async () => {
+      Object.defineProperty(process, 'platform', { configurable: true, value: 'win32' })
+      provider.configure({
+        getWindowsShell: () => 'powershell.exe',
+        getWindowsPowerShellImplementation: () => 'auto',
+        pwshAvailable: () => false
+      })
+      const callsBeforeSpawn = spawnMock.mock.calls.length
+      const spawn = provider.spawn({
+        cols: 80,
+        rows: 24,
+        cwd: 'C:\\Users\\jin\\repo',
+        sessionId: 'probe-shutdown-session'
+      })
+      const canceledSpawn = expect(spawn).rejects.toThrow(
+        'PTY spawn canceled: probe-shutdown-session'
+      )
+      const shutdown = new Promise<void>((resolve, reject) => {
+        queueMicrotask(() => {
+          provider.shutdown('probe-shutdown-session', { immediate: true }).then(resolve, reject)
+        })
+      })
+
+      await shutdown
+      await canceledSpawn
+      expect(spawnMock).toHaveBeenCalledTimes(callsBeforeSpawn)
     })
 
     it('marks Orca terminal handle for WSL import when buildSpawnEnv opts in', async () => {
@@ -517,7 +637,14 @@ describe('LocalPtyProvider', () => {
 
       expect(spawnMock).toHaveBeenCalledWith(
         'wsl.exe',
-        ['-d', 'Ubuntu', '--', 'sh', '-c', expect.stringContaining("cd '/home/jin/repo/subdir'")],
+        [
+          '-d',
+          'Ubuntu',
+          '--exec',
+          'sh',
+          '-c',
+          expect.stringContaining("cd '/home/jin/repo/subdir'")
+        ],
         expect.objectContaining({ cwd: expect.any(String) })
       )
     })

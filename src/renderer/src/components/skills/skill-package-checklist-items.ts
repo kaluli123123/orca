@@ -1,10 +1,5 @@
 import type { SkillCloudVersion } from '../../../../shared/skill-cloud-contract'
 import { fileCountLabel } from './skill-display-labels'
-import {
-  isSkillBinaryFile,
-  isSkillInstructionFile,
-  isSkillRunnableFile
-} from './skill-package-install-risk'
 
 export type SkillChecklistFile = {
   path: string
@@ -33,8 +28,7 @@ export function checklistItemsFromVersion(version: SkillCloudVersion): SkillChec
   return [
     {
       id: version.manifest.name,
-      // Why: the version carries the published name and description; the
-      // manifest copy is the fallback for packages that predate them.
+      // Prefer published version metadata; older packages fall back to manifest fields.
       name: version.name || version.manifest.name,
       description: version.description || version.manifest.description,
       files: version.manifest.files
@@ -42,26 +36,8 @@ export function checklistItemsFromVersion(version: SkillCloudVersion): SkillChec
   ]
 }
 
-/** Row summary: how much is here, and what deserves extra review. */
 export function checklistItemSummary(files: readonly SkillChecklistFile[]): {
   label: string
-  risky: boolean
 } {
-  const additionalCount = files.filter((file) => !isSkillInstructionFile(file)).length
-  const runnableCount = files.filter(isSkillRunnableFile).length
-  const binaryCount = files.filter(isSkillBinaryFile).length
-  const labels: string[] = []
-  if (runnableCount) {
-    labels.push(`${runnableCount} runnable`)
-  }
-  if (binaryCount) {
-    labels.push(`${binaryCount} binary`)
-  }
-  if (!labels.length) {
-    labels.push(additionalCount ? `${additionalCount} supporting` : 'Instructions only')
-  }
-  return {
-    label: `${fileCountLabel(files.length)} · ${labels.join(' · ')}`,
-    risky: additionalCount > 0
-  }
+  return { label: fileCountLabel(files.length) }
 }

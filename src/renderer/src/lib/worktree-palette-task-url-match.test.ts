@@ -117,6 +117,27 @@ describe('parseCmdJTaskSourceUrl', () => {
 })
 
 describe('matchWorktreePaletteTaskUrl', () => {
+  it('retains the matched workspace host for host-qualified consumers', () => {
+    const intent = parseCmdJTaskSourceUrl('https://github.com/stablyai/orca/issues/123')
+    expect(intent).not.toBeNull()
+
+    expect(
+      matchWorktreePaletteTaskUrl({
+        worktree: makeWorktree({
+          hostId: 'ssh:box',
+          linkedWorkItem: {
+            provider: 'github',
+            type: 'issue',
+            number: 123,
+            title: 'Host-qualified match',
+            url: 'https://github.com/stablyai/orca/issues/123'
+          }
+        }),
+        intent: intent!
+      })
+    ).toMatchObject({ worktreeId: 'wt-1', worktreeHostId: 'ssh:box' })
+  })
+
   it('matches a GitHub issue URL to the linked worktree in the same repo', () => {
     const intent = parseCmdJTaskSourceUrl('https://github.com/stablyai/orca/issues/14198')
     expect(intent).not.toBeNull()
@@ -129,7 +150,7 @@ describe('matchWorktreePaletteTaskUrl', () => {
       })
     ).toMatchObject({
       worktreeId: 'wt-1',
-      matchedField: 'issue',
+      matchedFields: ['issue'],
       supportingText: { labelKind: 'issue', text: 'Issue #14198' }
     })
     expect(
@@ -157,7 +178,7 @@ describe('matchWorktreePaletteTaskUrl', () => {
         intent: intent!,
         repo: orcaRepo
       })
-    ).toMatchObject({ matchedField: 'pr' })
+    ).toMatchObject({ matchedFields: ['pr'] })
   })
 
   it('matches a GitHub pull URL via the stored work-item URL', () => {
@@ -176,7 +197,7 @@ describe('matchWorktreePaletteTaskUrl', () => {
         intent: intent!,
         repo: { ...orcaRepo, displayName: 'Repo 1' }
       })
-    ).toMatchObject({ matchedField: 'pr', supportingText: { text: 'PR #12789' } })
+    ).toMatchObject({ matchedFields: ['pr'], supportingText: { text: 'PR #12789' } })
   })
 
   it('gates a stored GitHub number on the repo remote identity', () => {
@@ -194,7 +215,7 @@ describe('matchWorktreePaletteTaskUrl', () => {
         intent: intent!,
         repo: gitHubRepo('github.com/stablyai/orca')
       })
-    ).toMatchObject({ matchedField: 'pr', supportingText: { text: 'PR #12789' } })
+    ).toMatchObject({ matchedFields: ['pr'], supportingText: { text: 'PR #12789' } })
   })
 
   it('gates a stored GitHub work item with no URL on the repo remote identity', () => {
@@ -215,7 +236,7 @@ describe('matchWorktreePaletteTaskUrl', () => {
         intent: intent!,
         repo: gitHubRepo('github.com/stablyai/orca')
       })
-    ).toMatchObject({ matchedField: 'issue' })
+    ).toMatchObject({ matchedFields: ['issue'] })
   })
 
   it('does not match a GitHub URL on a different host for the same owner/repo', () => {
@@ -233,7 +254,7 @@ describe('matchWorktreePaletteTaskUrl', () => {
         intent: intent!,
         repo: gitHubRepo('ghe.example.com/stablyai/orca')
       })
-    ).toMatchObject({ matchedField: 'pr' })
+    ).toMatchObject({ matchedFields: ['pr'] })
   })
 
   it('matches GitHub remotes whose host is an SSH alias or www form of github.com', () => {
@@ -251,7 +272,7 @@ describe('matchWorktreePaletteTaskUrl', () => {
           intent: intent!,
           repo: gitHubRepo(canonicalKey)
         })
-      ).toMatchObject({ matchedField: 'pr' })
+      ).toMatchObject({ matchedFields: ['pr'] })
     }
     // A real, resolvable host is evidence of a different forge, not an alias.
     expect(
@@ -271,7 +292,7 @@ describe('matchWorktreePaletteTaskUrl', () => {
         intent: intent!,
         repo: gitHubRepo('ghe.example.com/stablyai/orca')
       })
-    ).toMatchObject({ matchedField: 'pr' })
+    ).toMatchObject({ matchedFields: ['pr'] })
   })
 
   it('stays permissive for GitHub numbers when the repo remote identity is unknown', () => {
@@ -282,10 +303,10 @@ describe('matchWorktreePaletteTaskUrl', () => {
         intent: intent!,
         repo: { ...orcaRepo, displayName: 'orca' }
       })
-    ).toMatchObject({ matchedField: 'pr' })
+    ).toMatchObject({ matchedFields: ['pr'] })
     expect(
       matchWorktreePaletteTaskUrl({ worktree: makeWorktree({ linkedPR: 12789 }), intent: intent! })
-    ).toMatchObject({ matchedField: 'pr' })
+    ).toMatchObject({ matchedFields: ['pr'] })
   })
 
   it('stays permissive for a GitHub fork whose identity resolved to the upstream remote', () => {
@@ -305,7 +326,7 @@ describe('matchWorktreePaletteTaskUrl', () => {
         intent: intent!,
         repo: forkRepo
       })
-    ).toMatchObject({ matchedField: 'pr' })
+    ).toMatchObject({ matchedFields: ['pr'] })
     // An `origin`-derived identity is authoritative, so a different repo still loses.
     expect(
       matchWorktreePaletteTaskUrl({
@@ -339,7 +360,7 @@ describe('matchWorktreePaletteTaskUrl', () => {
         intent: issueIntent!,
         repo: gitHubRepo('github.com/stablyai/orca')
       })
-    ).toMatchObject({ matchedField: 'issue', supportingText: { text: 'Issue #12789' } })
+    ).toMatchObject({ matchedFields: ['issue'], supportingText: { text: 'Issue #12789' } })
   })
 
   it('keeps an owner/repo displayName authoritative over a host-alias remote', () => {
@@ -357,7 +378,7 @@ describe('matchWorktreePaletteTaskUrl', () => {
           }
         }
       })
-    ).toMatchObject({ matchedField: 'pr' })
+    ).toMatchObject({ matchedFields: ['pr'] })
   })
 
   it('matches a GitHub PR URL via the linked review URL regardless of remote identity', () => {
@@ -378,7 +399,7 @@ describe('matchWorktreePaletteTaskUrl', () => {
           mergeable: 'UNKNOWN'
         }
       })
-    ).toMatchObject({ matchedField: 'pr' })
+    ).toMatchObject({ matchedFields: ['pr'] })
   })
 
   it('rejects a GitLab MR URL from a different project than the stored URL', () => {
@@ -419,7 +440,7 @@ describe('matchWorktreePaletteTaskUrl', () => {
         repo: gitLabRepo('gitlab.example.com/other/project')
       })
     ).toMatchObject({
-      matchedField: 'pr',
+      matchedFields: ['mr'],
       supportingText: { labelKind: 'mr', text: 'MR #17' }
     })
   })
@@ -478,7 +499,7 @@ describe('matchWorktreePaletteTaskUrl', () => {
         intent: intent!,
         repo: gitLabRepo('gitlab.com/acme/orca')
       })
-    ).toMatchObject({ matchedField: 'pr' })
+    ).toMatchObject({ matchedFields: ['mr'] })
   })
 
   it('matches GitLab remotes whose host is an SSH alias or www form of gitlab.com', () => {
@@ -495,7 +516,7 @@ describe('matchWorktreePaletteTaskUrl', () => {
           intent: intent!,
           repo: gitLabRepo(canonicalKey)
         })
-      ).toMatchObject({ matchedField: 'pr' })
+      ).toMatchObject({ matchedFields: ['mr'] })
     }
     expect(
       matchWorktreePaletteTaskUrl({
@@ -514,17 +535,17 @@ describe('matchWorktreePaletteTaskUrl', () => {
         intent: intent!,
         repo: orcaRepo
       })
-    ).toMatchObject({ matchedField: 'pr' })
+    ).toMatchObject({ matchedFields: ['mr'] })
     expect(
       matchWorktreePaletteTaskUrl({
         worktree: makeWorktree({ linkedGitLabMR: 17 }),
         intent: intent!
       })
-    ).toMatchObject({ matchedField: 'pr' })
+    ).toMatchObject({ matchedFields: ['mr'] })
   })
 
-  it('stays permissive for a fork whose identity resolved to the upstream remote', () => {
-    // `deriveGitRemoteIdentity` prefers `upstream`, so the fork's own `origin` is not visible here.
+  it('declines a different GitLab project even when the identity came from upstream', () => {
+    // GitLab iids are project-scoped; authoritative upstream identity rejects fork-origin URLs hidden by single-remote selection (accepted false negative, STA-4450).
     const forkRepo: Repo = {
       ...gitLabRepo('gitlab.com/acme/orca'),
       gitRemoteIdentity: {
@@ -539,7 +560,15 @@ describe('matchWorktreePaletteTaskUrl', () => {
         intent: parseCmdJTaskSourceUrl('https://gitlab.com/me/orca/-/merge_requests/17')!,
         repo: forkRepo
       })
-    ).toMatchObject({ matchedField: 'pr' })
+    ).toBeNull()
+    // The project the identity does name still matches.
+    expect(
+      matchWorktreePaletteTaskUrl({
+        worktree: makeWorktree({ linkedGitLabMR: 17 }),
+        intent: parseCmdJTaskSourceUrl('https://gitlab.com/acme/orca/-/merge_requests/17')!,
+        repo: forkRepo
+      })
+    ).toMatchObject({ matchedFields: ['mr'] })
     // An `origin`-derived identity is authoritative, so a different project still loses.
     expect(
       matchWorktreePaletteTaskUrl({
@@ -564,7 +593,7 @@ describe('matchWorktreePaletteTaskUrl', () => {
           repo: gitLabRepo('gitlab.com/acme/orca')
         })
       ).toMatchObject({
-        matchedField: 'issue',
+        matchedFields: ['issue'],
         supportingText: { labelKind: 'issue', text: 'Issue #17' }
       })
       expect(
@@ -595,7 +624,7 @@ describe('matchWorktreePaletteTaskUrl', () => {
           mergeable: 'UNKNOWN'
         }
       })
-    ).toMatchObject({ matchedField: 'pr' })
+    ).toMatchObject({ matchedFields: ['mr'] })
   })
 
   it('matches a Linear issue URL and rejects a different organization', () => {
@@ -643,8 +672,7 @@ describe('matchWorktreePaletteTaskUrl', () => {
     ).toMatchObject({ supportingText: { text: 'PROJ-123' } })
   })
 
-  // Why: Jira issue keys are per-project, so the same PROJ-123 exists on every
-  // tenant that has a PROJ project.
+  // Jira issue keys repeat across tenants sharing a project key.
   it('rejects a Jira issue URL from a different tenant with the same issue key', () => {
     const intent = parseCmdJTaskSourceUrl('https://acme.atlassian.net/browse/PROJ-123')
 
@@ -663,6 +691,28 @@ describe('matchWorktreePaletteTaskUrl', () => {
         intent: intent!
       })
     ).toBeNull()
+  })
+
+  it('carries the worktree host so the board can key the Jira match by host identity', () => {
+    // Jira must carry worktreeHostId like other providers or URL board filters lose every lane.
+    const intent = parseCmdJTaskSourceUrl('https://acme.atlassian.net/browse/PROJ-123')
+
+    expect(
+      matchWorktreePaletteTaskUrl({
+        worktree: makeWorktree({
+          hostId: 'ssh:box',
+          linkedWorkItem: {
+            provider: 'jira',
+            type: 'issue',
+            number: 0,
+            title: 'Ticket',
+            jiraIdentifier: 'PROJ-123',
+            url: 'https://acme.atlassian.net/browse/PROJ-123'
+          }
+        }),
+        intent: intent!
+      })
+    ).toMatchObject({ worktreeHostId: 'ssh:box' })
   })
 
   // Same host, different site path: Jira Server installs are commonly path-scoped.
@@ -686,9 +736,7 @@ describe('matchWorktreePaletteTaskUrl', () => {
     ).toBeNull()
   })
 
-  // The reachable fallback: `normalizeWorkspaceLinkedItem` drops any item with a
-  // blank url, so the only way to have no tenant evidence is a url that is present
-  // but is not a Jira browse link. The identifier is then all there is.
+  // Blank URLs are normalized away; only a present non-browse URL leaves identifier-only Jira matching reachable.
   it('falls back to the Jira identifier when the stored url is not a Jira link', () => {
     const intent = parseCmdJTaskSourceUrl('https://acme.atlassian.net/browse/PROJ-123')
 

@@ -1,11 +1,16 @@
-import { mkdir, mkdtemp, readdir, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readdir, realpath, rm, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { SkillCloudVersion } from '../../shared/skill-cloud-contract'
 import { SkillSharePreparationService } from './skill-share-preparation-service'
+import { writeSkillInstallReceipt } from './skill-install-provenance'
 
 const temporaryDirectories: string[] = []
+
+async function nameIsFree() {
+  return { status: 'ok' as const, value: null }
+}
 
 async function createSource(): Promise<{ root: string; source: string }> {
   const root = await mkdtemp(join(tmpdir(), 'orca-skill-share-preparation-'))
@@ -50,12 +55,108 @@ afterEach(async () => {
 })
 
 describe('SkillSharePreparationService', () => {
+  it('preserves executable modes from a managed Windows install receipt', async () => {
+    const { root, source } = await createSource()
+    await writeFile(join(source, 'run.sh'), 'echo without shebang\n')
+    const stateDirectory = join(root, 'state')
+    await writeSkillInstallReceipt(stateDirectory, {
+      schemaVersion: 1,
+      packageId: 'package_1',
+      versionId: 'version_1',
+      packageDigest: 'a'.repeat(64),
+      archiveSha256: 'b'.repeat(64),
+      scope: 'global',
+      destinationIdentity: 'global:windows',
+      canonicalPath: source,
+      placements: [],
+      installedAt: '2026-08-16T12:00:00.000Z',
+      hostIdentity: 'windows',
+      fileModes: [
+        { path: 'SKILL.md', executable: false },
+        { path: 'run.sh', executable: true }
+      ]
+    })
+    const service = new SkillSharePreparationService(
+      join(root, 'preparations'),
+      { findOwnedPackageId: nameIsFree, publishVersion: vi.fn(), createShare: vi.fn() },
+      { installStateDirectory: stateDirectory, platform: 'win32' }
+    )
+
+    const prepared = await service.prepare({ sourceDirectory: source })
+
+    expect(prepared.skills?.[0]?.executablePaths).toEqual(['run.sh'])
+  })
+
+  it('finds Windows install receipts through a provider junction', async () => {
+    const { root, source } = await createSource()
+    await writeFile(join(source, 'run.sh'), 'echo without shebang\n')
+    const canonicalSource = await realpath(source)
+    const providerSource = join(root, 'provider-source')
+    await symlink(
+      canonicalSource,
+      providerSource,
+      process.platform === 'win32' ? 'junction' : 'dir'
+    )
+    const stateDirectory = join(root, 'state')
+    await writeSkillInstallReceipt(stateDirectory, {
+      schemaVersion: 1,
+      packageId: 'package_1',
+      versionId: 'version_1',
+      packageDigest: 'a'.repeat(64),
+      archiveSha256: 'b'.repeat(64),
+      scope: 'global',
+      destinationIdentity: 'global:windows',
+      canonicalPath: canonicalSource,
+      placements: [],
+      installedAt: '2026-08-16T12:00:00.000Z',
+      hostIdentity: 'windows',
+      fileModes: [
+        { path: 'SKILL.md', executable: false },
+        { path: 'run.sh', executable: true }
+      ]
+    })
+    const service = new SkillSharePreparationService(
+      join(root, 'preparations'),
+      { findOwnedPackageId: nameIsFree, publishVersion: vi.fn(), createShare: vi.fn() },
+      { installStateDirectory: stateDirectory, platform: 'win32' }
+    )
+
+    const prepared = await service.prepare({ sourceDirectory: providerSource })
+
+    expect(prepared.skills?.[0]?.executablePaths).toEqual(['run.sh'])
+  })
+
+  it('retries initialization after a transient failure', async () => {
+    const { root, source } = await createSource()
+    const preparationRoot = join(root, 'preparations')
+    const initializeRoot = vi
+      .fn<() => Promise<void>>()
+      .mockRejectedValueOnce(new Error('transient-init-failure'))
+      .mockImplementationOnce(async () => {
+        await mkdir(preparationRoot, { recursive: true })
+      })
+    const service = new SkillSharePreparationService(
+      preparationRoot,
+      { findOwnedPackageId: nameIsFree, publishVersion: vi.fn(), createShare: vi.fn() },
+      { initializeRoot }
+    )
+
+    await expect(service.prepare({ sourceDirectory: source })).rejects.toThrow(
+      'transient-init-failure'
+    )
+    await expect(service.prepare({ sourceDirectory: source })).resolves.toMatchObject({
+      name: 'shared-skill'
+    })
+    expect(initializeRoot).toHaveBeenCalledTimes(2)
+  })
+
   it('removes abandoned preparations from a previous process before preparing', async () => {
     const { root, source } = await createSource()
     const preparationRoot = join(root, 'preparations')
     await mkdir(join(preparationRoot, 'abandoned'), { recursive: true })
     await writeFile(join(preparationRoot, 'abandoned', 'package.tar.gz'), 'private bytes')
     const service = new SkillSharePreparationService(preparationRoot, {
+      findOwnedPackageId: nameIsFree,
       publishVersion: vi.fn(),
       createShare: vi.fn()
     })
@@ -68,6 +169,7 @@ describe('SkillSharePreparationService', () => {
   it('enforces the preparation cap while archives are still being created', async () => {
     const { root, source } = await createSource()
     const service = new SkillSharePreparationService(join(root, 'preparations'), {
+      findOwnedPackageId: nameIsFree,
       publishVersion: vi.fn(),
       createShare: vi.fn()
     })
@@ -97,6 +199,7 @@ describe('SkillSharePreparationService', () => {
         value: { id: 'share_retry', url: 'https://share.test/skills/share/share_retry' }
       })
     const service = new SkillSharePreparationService(join(root, 'preparations'), {
+      findOwnedPackageId: nameIsFree,
       publishVersion,
       createShare
     })
@@ -138,6 +241,7 @@ describe('SkillSharePreparationService', () => {
         value: { id: 'share_retry', url: 'https://share.test/skills/share/share_retry' }
       })
     const service = new SkillSharePreparationService(join(root, 'preparations'), {
+      findOwnedPackageId: nameIsFree,
       publishVersion,
       createShare
     })

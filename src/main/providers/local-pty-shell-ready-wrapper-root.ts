@@ -1,28 +1,49 @@
-/**
- * On-disk layout of the generated shell-ready wrapper files, plus the marker the
- * wrappers emit — the shared contract between wrapper generation and shell launch.
- */
 import { tmpdir } from 'node:os'
-import { existsSync } from 'node:fs'
+import { join } from 'node:path'
+import { statSync } from 'node:fs'
+import { resolveShellWrapperRoot } from '../shell-wrapper-content-address'
+import {
+  buildLocalShellReadyWrapperFiles,
+  getLocalShellReadyWrapperPaths
+} from './local-pty-shell-ready-wrapper-fileset'
 
-export const SHELL_READY_MARKER_ESCAPED = '\\033]777;orca-shell-ready\\007'
+export { SHELL_READY_MARKER_ESCAPED } from './local-pty-shell-ready-marker'
+
+function getShellReadyWrapperBaseDir(): string {
+  // Plain-node daemon forks share ORCA_USER_DATA_PATH with main; empty values must fall back, never form relative roots.
+  const userDataPath = process.env.ORCA_USER_DATA_PATH
+  // Avoid legacy shell-ready/ trees still overwritten by old daemons.
+  // The temp fallback trusts nonempty preplanted files; production must seed ORCA_USER_DATA_PATH before spawning.
+  return userDataPath ? join(userDataPath, 'shell-wrappers') : join(tmpdir(), 'orca-shell-wrappers')
+}
+
+// Cache by base directory so changing ORCA_USER_DATA_PATH invalidates the digest.
+let cachedShellReadyWrapperRoot: { baseDir: string; root: string } | null = null
 
 export function getShellReadyWrapperRoot(): string {
-  // Why: bundled into the daemon fork (no electron), so read ORCA_USER_DATA_PATH rather than electron's userData; main and the fork both set it to the same path.
-  const userDataPath = process.env.ORCA_USER_DATA_PATH ?? tmpdir()
-  return `${userDataPath}/shell-ready`
+  const baseDir = getShellReadyWrapperBaseDir()
+  if (cachedShellReadyWrapperRoot?.baseDir !== baseDir) {
+    cachedShellReadyWrapperRoot = {
+      baseDir,
+      root: resolveShellWrapperRoot(baseDir, buildLocalShellReadyWrapperFiles)
+    }
+  }
+  return cachedShellReadyWrapperRoot.root
 }
 
-export function getRequiredShellReadyWrapperPaths(root = getShellReadyWrapperRoot()): string[] {
-  return [
-    `${root}/zsh/.zshenv`,
-    `${root}/zsh/.zprofile`,
-    `${root}/zsh/.zshrc`,
-    `${root}/zsh/.zlogin`,
-    `${root}/bash/rcfile`
-  ]
+export function getRequiredShellReadyWrapperPaths(
+  root = getShellReadyWrapperRoot()
+): readonly string[] {
+  return getLocalShellReadyWrapperPaths(root)
 }
 
+/** Zero-byte partial wrappers would silently bypass the user config; presence alone is insufficient. */
 export function shellReadyWrappersExist(root = getShellReadyWrapperRoot()): boolean {
-  return getRequiredShellReadyWrapperPaths(root).every((path) => existsSync(path))
+  return getRequiredShellReadyWrapperPaths(root).every((path) => {
+    try {
+      return statSync(path).size > 0
+    } catch {
+      return false
+    }
+  })
 }

@@ -12,11 +12,12 @@ export type SessionOptions = {
   subprocess: SubprocessHandle
   shellReadySupported: boolean
   shellReadyTimeoutMs?: number
+  /** Use the daemon file log: detached stdio is ignored. */
+  reportReadinessEvent?: (event: string, details: Record<string, unknown>) => void
   historySeedChunks?: readonly string[]
   scrollback?: number
   wslDistro?: string
-  // Fired once the session reaches a terminal state so the owner (TerminalHost) can reap it; without
-  // a reaper, dead sessions and their scrollback emulators accumulate for the daemon's lifetime.
+  // Let the host reap exited sessions and their scrollback emulators.
   onExit?: (code: number) => void
   startupIngress?: PtyStartupIngressIntent
   ownerBackend?: PtyOwnerBackend

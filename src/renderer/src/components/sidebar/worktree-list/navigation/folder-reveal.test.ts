@@ -8,7 +8,7 @@ import {
   getKnownSidebarWorktreeById,
   sidebarWorkspaceStillExists
 } from './folder-reveal'
-import { getProjectGroupHeaderKey } from '../grouping/group-keys'
+import { getProjectGroupHeaderKey } from '../../../../../../shared/sidebar-list/group-keys'
 
 function makeFolderWorkspace(overrides: Partial<FolderWorkspace> = {}): FolderWorkspace {
   return {
@@ -117,5 +117,96 @@ describe('worktree list folder reveal', () => {
         [child, root]
       )
     ).toEqual([getProjectGroupHeaderKey(root.id), getProjectGroupHeaderKey(child.id)])
+  })
+
+  it.each(['local', 'ssh:builder', 'runtime:builder'] as const)(
+    'expands only the %s owner when folder and group ids repeat across hosts',
+    (executionHostId) => {
+      const otherHostId = executionHostId === 'local' ? 'runtime:other' : 'local'
+      const root = makeProjectGroup({ id: 'selected-root', executionHostId })
+      const child = makeProjectGroup({
+        id: 'group-child',
+        parentGroupId: root.id,
+        executionHostId
+      })
+      const otherRoot = makeProjectGroup({ id: 'other-root', executionHostId: otherHostId })
+      const otherChild = makeProjectGroup({
+        id: child.id,
+        parentGroupId: otherRoot.id,
+        executionHostId: otherHostId
+      })
+      const folderWorkspace = makeFolderWorkspace({ executionHostId })
+
+      expect(
+        getFolderWorkspaceRevealGroupKeys(
+          folderWorkspaceKey(folderWorkspace.id),
+          [{ ...folderWorkspace, executionHostId: otherHostId }, folderWorkspace],
+          [otherRoot, otherChild, root, child],
+          { executionHostId, defaultHostId: 'local' }
+        )
+      ).toEqual([
+        getProjectGroupHeaderKey(root.id),
+        getProjectGroupHeaderKey(child.id),
+        `host:${executionHostId}`
+      ])
+    }
+  )
+
+  it('follows the parents the sidebar draws when same-id group copies disagree (#30045)', () => {
+    const localChild = makeProjectGroup({ id: 'group-child', executionHostId: 'local' })
+    const remoteRoot = makeProjectGroup({ id: 'remote-root', executionHostId: 'runtime:other' })
+    const remoteChild = makeProjectGroup({
+      id: localChild.id,
+      parentGroupId: remoteRoot.id,
+      executionHostId: 'runtime:other'
+    })
+    const folderWorkspace = makeFolderWorkspace({ executionHostId: 'local' })
+
+    expect(
+      getFolderWorkspaceRevealGroupKeys(
+        folderWorkspaceKey(folderWorkspace.id),
+        [folderWorkspace],
+        [localChild, remoteRoot, remoteChild],
+        { executionHostId: 'local', defaultHostId: 'local' }
+      )
+    ).toEqual([
+      getProjectGroupHeaderKey(remoteRoot.id),
+      getProjectGroupHeaderKey(localChild.id),
+      'host:local'
+    ])
+  })
+})
+
+describe('reveal keys under non-repo grouping', () => {
+  const group = makeProjectGroup({ id: 'group-child', connectionId: 'target-1' })
+  const folderWorkspace = makeFolderWorkspace({ workspaceStatus: 'in-progress' })
+  const workspaceKey = folderWorkspaceKey(folderWorkspace.id)
+
+  it('returns the status lane key so a collapsed lane can be expanded', () => {
+    const keys = getFolderWorkspaceRevealGroupKeys(workspaceKey, [folderWorkspace], [group], {
+      groupBy: 'workspace-status',
+      workspaceStatuses: [],
+      defaultHostId: 'local'
+    })
+    expect(keys).toContain('workspace-status:in-progress')
+  })
+
+  it('returns the host key so a collapsed host can be expanded too', () => {
+    const keys = getFolderWorkspaceRevealGroupKeys(workspaceKey, [folderWorkspace], [group], {
+      groupBy: 'workspace-status',
+      workspaceStatuses: [],
+      defaultHostId: 'local'
+    })
+    expect(keys).toContain('host:ssh:target-1')
+  })
+
+  it('still returns project-group keys under repo grouping', () => {
+    const keys = getFolderWorkspaceRevealGroupKeys(workspaceKey, [folderWorkspace], [group], {
+      groupBy: 'repo',
+      workspaceStatuses: [],
+      defaultHostId: 'local'
+    })
+    expect(keys).toContain(getProjectGroupHeaderKey(group.id))
+    expect(keys.some((key) => key.startsWith('workspace-status:'))).toBe(false)
   })
 })

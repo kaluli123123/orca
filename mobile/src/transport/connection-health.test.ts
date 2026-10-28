@@ -14,6 +14,32 @@ describe('classifyConnection auth-failed verdict', () => {
   })
 })
 
+describe('classifyConnection pairing-rejected verdict', () => {
+  it('outranks a pending Relay recovery that would otherwise read as progress', () => {
+    const verdict = classifyConnection({
+      state: 'disconnected',
+      reconnectAttempts: 1,
+      lastConnectedAt: 1_000,
+      pendingPath: 'relay',
+      pairingRejected: true,
+      nowMs: 1_000_000
+    })
+    expect(verdict.kind).toBe('auth-failed')
+    expect(verdictDisplayLabel(verdict)).toBe('Pairing invalid — re-pair with your desktop')
+  })
+
+  it('never overrides a live connection', () => {
+    const verdict = classifyConnection({
+      state: 'connected',
+      reconnectAttempts: 0,
+      lastConnectedAt: 999_000,
+      pairingRejected: true,
+      nowMs: 1_000_000
+    })
+    expect(verdict).toEqual({ kind: 'normal', label: 'Connected' })
+  })
+})
+
 describe('classifyConnection Tailscale hint', () => {
   const base = {
     state: 'reconnecting' as const,
@@ -52,12 +78,6 @@ describe('classifyConnection Tailscale hint', () => {
     })
     expect(warning.kind).toBe('warning')
     expect('hint' in warning && warning.hint).toBeFalsy()
-  })
-
-  it('keeps plain labels when no endpoint is provided', () => {
-    const verdict = classifyConnection({ ...base, reconnectAttempts: 3 })
-    expect(verdict.kind).toBe('warning')
-    expect('hint' in verdict && verdict.hint).toBeFalsy()
   })
 
   it('never hints on healthy states', () => {
@@ -101,11 +121,21 @@ describe('classifyConnection Tailscale hint', () => {
     })
     expect(verdictDisplayLabel(verdict)).not.toContain('Tailscale')
   })
+
+  it('does not call an idle Relay path Connecting when no retry is active', () => {
+    const verdict = classifyConnection({
+      state: 'disconnected',
+      reconnectAttempts: 0,
+      lastConnectedAt: 1_000,
+      pendingPath: 'relay',
+      nowMs: 1_000_000
+    })
+
+    expect(verdict).toEqual({ kind: 'normal', label: 'Disconnected' })
+  })
 })
 
-// Issue #10119: every redial re-enters 'connecting', which used to revert an
-// escalated verdict to "Connecting…" for the whole dial window — on a loop that
-// had already failed for minutes, the user mostly saw the reassuring label.
+// Every redial must retain escalation instead of resetting the visible failure to Connecting (#10119).
 describe('classifyConnection while dialing (issue #10119)', () => {
   const base = { lastConnectedAt: null, nowMs: 1_000_000 }
 

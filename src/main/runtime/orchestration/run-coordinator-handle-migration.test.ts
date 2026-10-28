@@ -4,6 +4,8 @@ import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import Database from '../../sqlite/sync-database'
 import { OrchestrationDb } from './db'
+import { SCHEMA_VERSION } from './db/contract-constants'
+import { createRootDispatch } from './db/root-dispatch-test-fixture'
 
 describe('Run coordinator handle history migration', () => {
   let db: OrchestrationDb | undefined
@@ -37,7 +39,7 @@ describe('Run coordinator handle history migration', () => {
 
     db = new OrchestrationDb(dbPath)
     const sqlite = (db as unknown as { db: Database.Database }).db
-    expect(sqlite.pragma('user_version', { simple: true })).toBe(28)
+    expect(sqlite.pragma('user_version', { simple: true })).toBe(SCHEMA_VERSION)
     expect(
       sqlite
         .prepare('SELECT run_id, terminal_handle FROM run_coordinator_handles WHERE run_id = ?')
@@ -79,12 +81,12 @@ describe('Run coordinator handle history migration', () => {
 
     const v28Db = new Database(dbPath)
     v28Db.exec('DROP TABLE run_coordinator_handles')
-    expect(v28Db.pragma('user_version', { simple: true })).toBe(28)
+    expect(v28Db.pragma('user_version', { simple: true })).toBe(SCHEMA_VERSION)
     v28Db.close()
 
     db = new OrchestrationDb(dbPath)
     const sqlite = (db as unknown as { db: Database.Database }).db
-    expect(sqlite.pragma('user_version', { simple: true })).toBe(28)
+    expect(sqlite.pragma('user_version', { simple: true })).toBe(SCHEMA_VERSION)
     expect(
       sqlite
         .prepare('SELECT run_id, terminal_handle FROM run_coordinator_handles WHERE run_id = ?')
@@ -111,7 +113,7 @@ describe('Run coordinator handle history migration', () => {
     oldRuntimeDb
       .prepare('UPDATE runs SET coordinator_handle = ? WHERE id = ?')
       .run('term_v27_second', run.id)
-    expect(oldRuntimeDb.pragma('user_version', { simple: true })).toBe(28)
+    expect(oldRuntimeDb.pragma('user_version', { simple: true })).toBe(SCHEMA_VERSION)
     oldRuntimeDb.close()
 
     db = new OrchestrationDb(dbPath)
@@ -163,5 +165,37 @@ describe('Run coordinator handle history migration', () => {
     })
 
     expect(db.getMessageById(message.id)?.to_handle).toBe(`run:${run.id}`)
+  })
+
+  it('stops routing an address that grabbed the seat while it worked for the Run', () => {
+    db = new OrchestrationDb(':memory:')
+    const run = db.createRun({
+      objective: 'grabbed',
+      coordinatorHandle: 'term_coord',
+      coordinatorPaneKey: 'tab:leaf'
+    })
+    const dispatch = createRootDispatch(
+      db,
+      db.createTask({ spec: 'w', runId: run.id }).id,
+      'term_worker'
+    )
+    // An older build remembered the worker as a coordinator address when it bound the Run.
+    db.rememberRunCoordinatorHandle(run.id, 'term_worker')
+    db.db
+      .prepare(
+        `UPDATE dispatch_contexts SET status = 'completed', completed_at = datetime('now', '+1 second') WHERE id = ?`
+      )
+      .run(dispatch.id)
+
+    const mail = db.insertMessage({
+      runId: run.id,
+      from: 'term_coord',
+      to: 'term_worker',
+      subject: 'direct'
+    })
+
+    expect(db.getMessageById(mail.id)?.to_handle).toBe('term_worker')
+    expect(db.getRunMailboxOwnerIdsForHandle('term_worker')).toEqual([])
+    expect(db.routeForeignDirectMessagesToOwnedMailboxes('term_worker').routedCount).toBe(0)
   })
 })

@@ -1,4 +1,4 @@
-import { DaemonProtocolError } from './types'
+import { DaemonConnectionLostError, DaemonProtocolError } from './types'
 import type { RpcResponse } from './types'
 import { addNodePtyRecoveryHint } from './node-pty-error-hints'
 import { decodeDaemonResponseError } from './daemon-errors'
@@ -44,10 +44,11 @@ export class DaemonPendingRequests {
     }
   }
 
+  // Keep transport failures distinct from refusal replies: only the former may tear down shared sockets.
   rejectAll(reason: string): void {
     for (const [id, pending] of this.requests) {
       clearTimeout(pending.timer)
-      pending.reject(new DaemonProtocolError(reason))
+      pending.reject(new DaemonConnectionLostError(reason))
       this.requests.delete(id)
     }
   }

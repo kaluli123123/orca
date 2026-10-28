@@ -5,6 +5,7 @@ import { translate } from '@/i18n/i18n'
 import { getRenderRowOptionId } from './active-descendant-option'
 import {
   findPreferredRenderRowIndexForWorktree,
+  findPreferredRenderRowIndexForWorktreeIdentity,
   getRenderRowSidebarKey,
   rowKeyMatchesRenderRow
 } from './render-row-lookup'
@@ -18,8 +19,6 @@ import {
   type PendingSidebarRevealArgs
 } from './pending-reveal-inputs'
 
-// Drives the store's two pending reveal requests (a worktree card, or any sidebar row)
-// from "expand the ancestors" through "scroll the mounted element into view".
 export function usePendingSidebarReveal(args: PendingSidebarRevealArgs): void {
   const setRenamingWorktreeId = useAppStore((s) => s.setRenamingWorktreeId)
   const [pendingRevealRetryTick, setPendingRevealRetryTick] = useState(0)
@@ -61,7 +60,11 @@ export function usePendingSidebarReveal(args: PendingSidebarRevealArgs): void {
     }
     const current = argsRef.current
     if (current.agentSendTargetWorktreeId !== pendingRevealWorktree.worktreeId) {
-      expandGroupsForWorktreeReveal(current, pendingRevealWorktree.worktreeId)
+      expandGroupsForWorktreeReveal(
+        current,
+        pendingRevealWorktree.worktreeId,
+        pendingRevealWorktree.executionHostId
+      )
     }
 
     let cancelled = false
@@ -72,13 +75,23 @@ export function usePendingSidebarReveal(args: PendingSidebarRevealArgs): void {
       const targetWorktreeStillExists = sidebarWorkspaceStillExists(
         pendingRevealWorktree.worktreeId,
         argsRef.current.worktrees,
-        argsRef.current.folderWorkspaces
+        argsRef.current.folderWorkspaces,
+        pendingRevealWorktree.executionHostId
       )
-      const targetIndex = findPreferredRenderRowIndexForWorktree(
-        renderRows,
-        pendingRevealWorktree.worktreeId,
-        pinnedDisplayPolicy
-      )
+      const targetIndex = pendingRevealWorktree.executionHostId
+        ? findPreferredRenderRowIndexForWorktreeIdentity(
+            renderRows,
+            {
+              id: pendingRevealWorktree.worktreeId,
+              hostId: pendingRevealWorktree.executionHostId
+            },
+            pinnedDisplayPolicy
+          )
+        : findPreferredRenderRowIndexForWorktree(
+            renderRows,
+            pendingRevealWorktree.worktreeId,
+            pinnedDisplayPolicy
+          )
       const outcome = resolvePendingSidebarReveal({ targetIndex, targetWorktreeStillExists })
       if (outcome === 'clear') {
         pendingRevealRetryRef.current = null
@@ -95,7 +108,11 @@ export function usePendingSidebarReveal(args: PendingSidebarRevealArgs): void {
             container,
             pendingRevealWorktree.worktreeId,
             pendingRevealWorktree.behavior,
-            getRenderRowOptionId(targetRow, pendingRevealWorktree.worktreeId),
+            getRenderRowOptionId(
+              targetRow,
+              pendingRevealWorktree.worktreeId,
+              pendingRevealWorktree.executionHostId
+            ),
             markRevealScroll
           )
         : null
@@ -147,6 +164,7 @@ export function usePendingSidebarReveal(args: PendingSidebarRevealArgs): void {
     args.repoMap,
     args.prCache,
     args.worktreeLineageById,
+    args.occurrencePlan,
     args.worktreeMap,
     renderRows,
     virtualizer,

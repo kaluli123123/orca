@@ -1,4 +1,4 @@
-import { AlertTriangle, ChevronRight } from 'lucide-react'
+import { ChevronRight } from 'lucide-react'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible'
 import { cn } from '@/lib/utils'
@@ -54,8 +54,7 @@ function ChecklistRow({
     translate('auto.components.skills.SkillsPage.9963dff6d3', 'No description found.')
   return (
     <li>
-      {/* Why: the description stays on the row and simply unclamps when the row
-          opens, so nothing is repeated and nothing is hidden behind a click. */}
+      {/* Unclamp the existing description on expansion instead of repeating it elsewhere. */}
       <Collapsible className="group/row">
         <div className="flex items-center gap-3 px-3 py-2">
           {selected !== null ? (
@@ -72,22 +71,15 @@ function ChecklistRow({
           >
             <span className="min-w-0 flex-1">
               <span className="block truncate text-sm font-medium">{item.name}</span>
-              <span className="block line-clamp-1 max-h-5 overflow-hidden text-xs leading-5 text-muted-foreground transition-[max-height] duration-200 ease-out group-data-[state=open]/row:line-clamp-none group-data-[state=open]/row:max-h-40 motion-reduce:transition-none">
+              {/* Why: unclamped text must contribute its full height to avoid painting over the file list. */}
+              <span className="block line-clamp-1 max-h-5 overflow-hidden text-xs leading-5 break-words text-muted-foreground group-data-[state=open]/row:line-clamp-none group-data-[state=open]/row:max-h-none">
                 {description}
               </span>
             </span>
             {note ? (
               <span className="shrink-0 text-[11px] text-muted-foreground">{note}</span>
             ) : null}
-            <span
-              className={cn(
-                'inline-flex shrink-0 items-center gap-1 text-[11px] text-muted-foreground',
-                summary.risky && 'text-foreground'
-              )}
-            >
-              {summary.risky ? <AlertTriangle className="size-3" /> : null}
-              {summary.label}
-            </span>
+            <span className="shrink-0 text-[11px] text-muted-foreground">{summary.label}</span>
             <ChevronRight className="size-3.5 shrink-0 text-muted-foreground transition-transform group-data-[state=open]/row:rotate-90" />
           </CollapsibleTrigger>
         </div>
@@ -108,11 +100,7 @@ function ChecklistRow({
   )
 }
 
-/**
- * What the link actually contains: one row per skill, each expandable to its
- * description and file list. Selection is offered only when there is a choice
- * to make — a single-skill package installs as one unit.
- */
+/** Expand skills into descriptions/files; offer selection only when a package contains a real choice. */
 export function SkillPackageChecklist({
   items,
   selectedIds,

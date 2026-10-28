@@ -1,3 +1,5 @@
+import type React from 'react'
+
 export function getWorktreeOptionId(rowKey: string): string {
   return `worktree-list-option-${encodeURIComponent(rowKey)}`
 }
@@ -21,7 +23,16 @@ export function markSidebarWorktreeActiveImmediately(
   primaryRowKey?: string
 ): void {
   const sidebar = document.querySelector<HTMLElement>('[data-worktree-sidebar]')
-  const nextOptions = getMountedWorktreeOptions(worktreeId, sidebar)
+  const matchingIdOptions = getMountedWorktreeOptions(worktreeId, sidebar)
+  const primaryOption = primaryRowKey
+    ? matchingIdOptions.find((option) => option.dataset.worktreeRowKey === primaryRowKey)
+    : matchingIdOptions[0]
+  const primaryHostIdentity = primaryOption?.dataset.worktreeHostIdentity
+  const nextOptions = primaryHostIdentity
+    ? matchingIdOptions.filter(
+        (option) => option.dataset.worktreeHostIdentity === primaryHostIdentity
+      )
+    : matchingIdOptions
   const nextOption = nextOptions[0]
   if (!nextOption) {
     return
@@ -55,4 +66,22 @@ export function markSidebarWorktreeActiveImmediately(
       : option.querySelector<HTMLElement>('[data-worktree-card-surface]')
     surface?.setAttribute('data-worktree-card-active', activeSurfaceVariant)
   }
+}
+
+// Why: assistive tools (e.g. Homerow) press the option itself, and that click never reaches the card's activation handler.
+export function forwardOptionPressToCardSurface(event: React.MouseEvent<HTMLElement>): void {
+  if (event.target !== event.currentTarget) {
+    return
+  }
+  const { altKey, ctrlKey, metaKey, shiftKey } = event
+  event.currentTarget.querySelector<HTMLElement>('[data-worktree-card-surface]')?.dispatchEvent(
+    new MouseEvent('click', {
+      bubbles: true,
+      cancelable: true,
+      altKey,
+      ctrlKey,
+      metaKey,
+      shiftKey
+    })
+  )
 }

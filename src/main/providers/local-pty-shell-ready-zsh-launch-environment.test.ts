@@ -13,7 +13,6 @@ import {
 
 restoreUserDataPathAfterEach()
 
-// End-to-end validation that wrapper ZDOTDIR discovery preserves top-level zsh semantics (spawns real zsh; gated on availability).
 describePosix('live zsh subprocess tests', () => {
   describeIfZsh('terminal emulator edge cases', () => {
     let testHome: string
@@ -48,13 +47,13 @@ describePosix('live zsh subprocess tests', () => {
       delete cleanEnv.ORCA_ORIG_ZDOTDIR
       cleanEnv.ZDOTDIR = config.env.ZDOTDIR
 
-      const result = spawnSync('zsh', ['-c', 'echo "ORCA_ORIG_ZDOTDIR=${ORCA_ORIG_ZDOTDIR}"'], {
+      const result = spawnSync('zsh', ['-c', 'echo "ZDOTDIR=${ZDOTDIR}"'], {
         env: cleanEnv as NodeJS.ProcessEnv,
         encoding: 'utf8'
       })
 
       expect(result.status).toBe(0)
-      expect(result.stdout).toContain(`ORCA_ORIG_ZDOTDIR=${xdgZshDir}`)
+      expect(result.stdout).toContain(`ZDOTDIR=${xdgZshDir}`)
     })
 
     it('discovers ZDOTDIR when launched from SSH session', async () => {
@@ -76,17 +75,20 @@ describePosix('live zsh subprocess tests', () => {
       delete cleanEnv.ORCA_ORIG_ZDOTDIR
       cleanEnv.ZDOTDIR = config.env.ZDOTDIR
 
-      const result = spawnSync('zsh', ['-c', 'echo "ORCA_ORIG_ZDOTDIR=${ORCA_ORIG_ZDOTDIR}"'], {
+      const result = spawnSync('zsh', ['-c', 'echo "ZDOTDIR=${ZDOTDIR}"'], {
         env: cleanEnv as NodeJS.ProcessEnv,
         encoding: 'utf8'
       })
 
       expect(result.status).toBe(0)
-      expect(result.stdout).toContain(`ORCA_ORIG_ZDOTDIR=${xdgZshDir}`)
+      expect(result.stdout).toContain(`ZDOTDIR=${xdgZshDir}`)
     })
 
     it('handles sudo -E where HOME and ZDOTDIR mismatch', async () => {
-      const userZdotdir = join('/home', 'alice', '.config', 'zsh')
+      // Inherited ZDOTDIR counts as user configuration only when it contains a startup file.
+      const userZdotdir = join(testHome, '.config', 'zsh')
+      mkdirSync(userZdotdir, { recursive: true })
+      writeFileSync(join(userZdotdir, '.zshrc'), '')
 
       const previousZdotdir = process.env.ZDOTDIR
       const previousHome = process.env.HOME
@@ -97,7 +99,6 @@ describePosix('live zsh subprocess tests', () => {
         const { getShellReadyLaunchConfig } = await importFreshLocalPtyShellReady()
         const config = getShellReadyLaunchConfig('/bin/zsh')
 
-        // Should preserve user's ZDOTDIR from spawn env, not fall back to /root
         expect(config.env.ORCA_ORIG_ZDOTDIR).toBe(userZdotdir)
       } finally {
         if (previousZdotdir === undefined) {
@@ -133,14 +134,13 @@ describePosix('live zsh subprocess tests', () => {
         delete cleanEnv.ZDOTDIR
         cleanEnv.ZDOTDIR = config.env.ZDOTDIR
 
-        const result = spawnSync('zsh', ['-c', 'echo "ORCA_ORIG_ZDOTDIR=${ORCA_ORIG_ZDOTDIR}"'], {
+        const result = spawnSync('zsh', ['-c', 'echo "ZDOTDIR=${ZDOTDIR}"'], {
           env: cleanEnv as NodeJS.ProcessEnv,
           encoding: 'utf8'
         })
 
         expect(result.status).toBe(0)
-        // Should discover fresh value from .zshenv, not use stale wrapper path
-        expect(result.stdout).toContain(`ORCA_ORIG_ZDOTDIR=${currentZdotdir}`)
+        expect(result.stdout).toContain(`ZDOTDIR=${currentZdotdir}`)
       } finally {
         if (previousOrcaZdotdir === undefined) {
           delete process.env.ORCA_ORIG_ZDOTDIR
@@ -171,14 +171,13 @@ describePosix('live zsh subprocess tests', () => {
         delete cleanEnv.ZDOTDIR
         cleanEnv.ZDOTDIR = config.env.ZDOTDIR
 
-        const result = spawnSync('zsh', ['-c', 'echo "ORCA_ORIG_ZDOTDIR=${ORCA_ORIG_ZDOTDIR}"'], {
+        const result = spawnSync('zsh', ['-c', 'echo "ZDOTDIR=${ZDOTDIR}"'], {
           env: cleanEnv as NodeJS.ProcessEnv,
           encoding: 'utf8'
         })
 
         expect(result.status).toBe(0)
-        // Should use fresh discovery (user updated .zshenv)
-        expect(result.stdout).toContain(`ORCA_ORIG_ZDOTDIR=${freshZdotdir}`)
+        expect(result.stdout).toContain(`ZDOTDIR=${freshZdotdir}`)
       } finally {
         if (previousOrcaZdotdir === undefined) {
           delete process.env.ORCA_ORIG_ZDOTDIR
@@ -210,7 +209,8 @@ describePosix('live zsh subprocess tests', () => {
       try {
         const { getShellReadyLaunchConfig } = await importFreshLocalPtyShellReady()
         const config = getShellReadyLaunchConfig('/bin/zsh')
-        expect(config.env.ORCA_ZSHENV_SOURCE_DIR).toBe(inheritedZdotdir)
+        // The wrapper restores this one user directory before zsh reads .zshenv.
+        expect(config.env.ORCA_ORIG_ZDOTDIR).toBe(inheritedZdotdir)
 
         const cleanEnv: Record<string, string | undefined> = {
           ...process.env,
@@ -220,10 +220,7 @@ describePosix('live zsh subprocess tests', () => {
 
         const result = spawnSync(
           'zsh',
-          [
-            '-c',
-            'echo "ORCA_ORIG_ZDOTDIR=${ORCA_ORIG_ZDOTDIR}" && echo "SOURCE_MARKER=${SOURCE_MARKER:-unset}"'
-          ],
+          ['-c', 'echo "ZDOTDIR=${ZDOTDIR}" && echo "SOURCE_MARKER=${SOURCE_MARKER:-unset}"'],
           {
             env: cleanEnv as NodeJS.ProcessEnv,
             encoding: 'utf8'
@@ -231,7 +228,7 @@ describePosix('live zsh subprocess tests', () => {
         )
 
         expect(result.status).toBe(0)
-        expect(result.stdout).toContain(`ORCA_ORIG_ZDOTDIR=${inheritedZdotdir}`)
+        expect(result.stdout).toContain(`ZDOTDIR=${inheritedZdotdir}`)
         expect(result.stdout).toContain('SOURCE_MARKER=inherited')
       } finally {
         if (previousZdotdir === undefined) {

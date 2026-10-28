@@ -1,20 +1,12 @@
 import {
+  capturePendingTerminalImeCompositionSessions,
   hasPendingTerminalImeComposition,
   XTERM_COMPOSITION_SESSION_END_EVENT
 } from './terminal-ime-composition-route'
 
 export const TERMINAL_IME_DEFERRED_NEWLINE_FALLBACK_MS = 200
 
-/**
- * `fallbackMs: null` waits indefinitely. A newline arriving late still arrives, so a timer is
- * right for it; a cursor chord arriving mid-preedit reproduces the corruption the wait exists to
- * prevent, and a conversion can hold its candidate window open for seconds. Dropping the chord
- * costs one keypress, firing early costs a mangled line.
- *
- * Returns a disposer that stops waiting without sending. An indefinite wait has no other exit, so
- * a caller that can outlive the composition must hold it — otherwise the listeners stay on the
- * terminal element and a later composition flushes the stale send.
- */
+/** Wait only for already-open compositions; later ones must not overtake this input. Newlines allow a fallback; indefinite cursor-chord waits need disposal because early send corrupts preedit and missing compositionend otherwise leaks a stale send. */
 export function sendTerminalInputAfterComposition(
   terminalElement: HTMLElement | null | undefined,
   send: () => void,
@@ -30,6 +22,7 @@ export function sendTerminalInputAfterComposition(
       ? null
       : (options?.fallbackMs ?? TERMINAL_IME_DEFERRED_NEWLINE_FALLBACK_MS)
   let done = false
+  const capturedSessions = capturePendingTerminalImeCompositionSessions(terminalElement)
 
   const stopWaiting = (): void => {
     if (done) {
@@ -56,7 +49,7 @@ export function sendTerminalInputAfterComposition(
   }
 
   const finishAfterPendingComposition = (): void => {
-    if (!hasPendingTerminalImeComposition(terminalElement)) {
+    if (!hasPendingTerminalImeComposition(terminalElement, capturedSessions)) {
       finish()
     }
   }
@@ -71,23 +64,23 @@ export function sendTerminalInputAfterComposition(
 
 export type TerminalImeDeferredNewlineSender = {
   defer: (
-    enter: TerminalImeEnterIdentity,
+    enter: TerminalImeKeyIdentity,
     terminalElement: HTMLElement | null | undefined,
     send: () => void
   ) => void
-  absorbRedispatchedEnter: (enter: TerminalImeEnterIdentity) => boolean
+  absorbRedispatchedEnter: (enter: TerminalImeKeyIdentity) => boolean
   releaseRedispatchedEnter: (
-    enter: TerminalImeEnterIdentity,
-    originatingEnter?: TerminalImeEnterIdentity
+    enter: TerminalImeKeyIdentity,
+    originatingEnter?: TerminalImeKeyIdentity
   ) => void
   clearRedispatchedEnters: () => void
 }
 
-export type TerminalImeEnterIdentity = Pick<KeyboardEvent, 'code' | 'timeStamp'>
+export type TerminalImeKeyIdentity = Pick<KeyboardEvent, 'code' | 'timeStamp'>
 
 export type TerminalImeModifiedEnterKind = 'shift' | 'ctrl'
 
-export type TerminalImeModifiedEnterChord = TerminalImeEnterIdentity & {
+export type TerminalImeModifiedEnterChord = TerminalImeKeyIdentity & {
   kind: TerminalImeModifiedEnterKind
   terminalModifierKeyDownObserved?: boolean
 }
@@ -175,7 +168,7 @@ type DeferredNewlineState = {
 export function createTerminalImeDeferredNewlineSender(): TerminalImeDeferredNewlineSender {
   const statesByEnterCode = new Map<string, Map<number, DeferredNewlineState>>()
 
-  const cleanUpIfSettled = (enter: TerminalImeEnterIdentity, state: DeferredNewlineState): void => {
+  const cleanUpIfSettled = (enter: TerminalImeKeyIdentity, state: DeferredNewlineState): void => {
     if (state.inFlightSends <= 0 && state.absorbCredits <= 0) {
       const statesByTimeStamp = statesByEnterCode.get(enter.code)
       statesByTimeStamp?.delete(enter.timeStamp)

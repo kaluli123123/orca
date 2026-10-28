@@ -1,5 +1,8 @@
-import { PINNED_GROUP_KEY, getLineageGroupKey } from '../grouping/group-keys'
-import type { HostSectionRow } from '../../host-section-rows'
+import {
+  PINNED_GROUP_KEY,
+  getWorktreeLineageGroupKey
+} from '../../../../../../shared/sidebar-list/group-keys'
+import type { HostSectionRow } from '../../../../../../shared/sidebar-list/host-section-rows'
 import type { RenderRow } from './render-row'
 
 export type WorktreeItemRow = Extract<HostSectionRow, { type: 'item' }>
@@ -41,7 +44,7 @@ export function buildRenderableRows(rows: HostSectionRow[]): RenderRow[] {
     }
     renderRows.push({
       type: 'lineage-group',
-      key: `${row.sectionKey}:${getLineageGroupKey(row.worktree.id)}`,
+      key: `${row.sectionKey}:${getWorktreeLineageGroupKey(row.worktree)}`,
       rows: groupRows
     })
     index = cursor - 1

@@ -267,6 +267,350 @@ describe('AgentHookServer listener replay', () => {
     }
   })
 
+  // Reattach must restore mid-turn and idle panes without waiting for a new-turn event.
+  for (const kind of ['pi', 'omp'] as const) {
+    it(`re-attaching a retired ${kind} pane restores status without needing a new turn`, async () => {
+      const server = new AgentHookServer()
+      await server.start({ env: 'production' })
+      try {
+        const env = server.buildPtyEnv()
+        const postHook = (payload: Record<string, unknown>): Promise<Response> =>
+          fetch(`http://127.0.0.1:${env.ORCA_AGENT_HOOK_PORT}/hook/${kind}`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'X-Orca-Agent-Hook-Token': env.ORCA_AGENT_HOOK_TOKEN
+            },
+            body: JSON.stringify(buildBody(payload, { launchToken: `retired-${kind}-token` }))
+          })
+
+        await postHook({ hook_event_name: 'before_agent_start', prompt: 'turn in flight' })
+        server.retirePaneAuthority(PANE)
+
+        // A surviving turn may have only its completion left to report.
+        await postHook({ hook_event_name: 'agent_end' })
+        expect(server.getStatusSnapshot()).toEqual([])
+
+        expect(server.restorePaneAuthority(PANE)).toBe(true)
+
+        await postHook({ hook_event_name: 'agent_end' })
+        expect(server.getStatusSnapshot()).toEqual([
+          expect.objectContaining({ paneKey: PANE, state: 'done' })
+        ])
+      } finally {
+        server.stop()
+      }
+    })
+  }
+
+  it('re-attaching an idle retired pane accepts completion and a later turn', async () => {
+    const server = new AgentHookServer()
+    await server.start({ env: 'production' })
+    try {
+      const env = server.buildPtyEnv()
+      const postHook = (payload: Record<string, unknown>): Promise<Response> =>
+        fetch(`http://127.0.0.1:${env.ORCA_AGENT_HOOK_PORT}/hook/pi`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'X-Orca-Agent-Hook-Token': env.ORCA_AGENT_HOOK_TOKEN
+          },
+          body: JSON.stringify(buildBody(payload, { launchToken: 'idle-reattach-token' }))
+        })
+
+      server.retirePaneAuthority(PANE)
+      expect(server.restorePaneAuthority(PANE)).toBe(true)
+
+      // Use a completion event to distinguish reattach revival from new-turn revival.
+      await postHook({ hook_event_name: 'agent_end' })
+      expect(server.getStatusSnapshot()).toEqual([
+        expect.objectContaining({ paneKey: PANE, state: 'done' })
+      ])
+
+      await postHook({ hook_event_name: 'before_agent_start', prompt: 'much later turn' })
+      expect(server.getStatusSnapshot()).toEqual([
+        expect.objectContaining({ paneKey: PANE, state: 'working', prompt: 'much later turn' })
+      ])
+    } finally {
+      server.stop()
+    }
+  })
+
+  it('re-attach does not lift a closed-tab tombstone', async () => {
+    const server = new AgentHookServer()
+    await server.start({ env: 'production' })
+    try {
+      const env = server.buildPtyEnv()
+      const postHook = (payload: Record<string, unknown>): Promise<Response> =>
+        fetch(`http://127.0.0.1:${env.ORCA_AGENT_HOOK_PORT}/hook/pi`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'X-Orca-Agent-Hook-Token': env.ORCA_AGENT_HOOK_TOKEN
+          },
+          body: JSON.stringify(buildBody(payload, { launchToken: 'closed-tab-token' }))
+        })
+
+      server.retirePaneAuthority(PANE)
+      server.dropStatusEntriesByTabPrefix('tab-1')
+      expect(server.restorePaneAuthority(PANE)).toBe(false)
+
+      await postHook({ hook_event_name: 'before_agent_start', prompt: 'after tab close' })
+      expect(server.getStatusSnapshot()).toEqual([])
+
+      expect(server.restorePaneAuthority(PANE)).toBe(false)
+    } finally {
+      server.stop()
+    }
+  })
+
+  // Reattach must rebuild retired aliases because the live process still posts its original pane key.
+  it('re-attaching a detached pane accepts hooks on the pane key its process launched under', async () => {
+    const server = new AgentHookServer()
+    await server.start({ env: 'production' })
+    try {
+      const detachedPane = makePaneKey('tab-2', LEAF_2)
+      const env = server.buildPtyEnv()
+      const postHook = (payload: Record<string, unknown>): Promise<Response> =>
+        fetch(`http://127.0.0.1:${env.ORCA_AGENT_HOOK_PORT}/hook/pi`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'X-Orca-Agent-Hook-Token': env.ORCA_AGENT_HOOK_TOKEN
+          },
+          body: JSON.stringify(buildBody(payload, { launchToken: 'detached-token' }))
+        })
+
+      await postHook({ hook_event_name: 'before_agent_start', prompt: 'turn in flight' })
+      // Detached processes keep posting their original key; aliases route them to the new owner.
+      server.transferPaneAuthority(PANE, detachedPane, 'pty-detached')
+      server.retirePaneAuthority(detachedPane)
+      expect(server.restorePaneAuthority(detachedPane)).toBe(true)
+
+      await postHook({ hook_event_name: 'agent_end' })
+      // Restoring fences without aliases would create a duplicate row under the old key.
+      expect(server.getStatusSnapshot()).toEqual([
+        expect.objectContaining({ paneKey: detachedPane, state: 'done' })
+      ])
+    } finally {
+      server.stop()
+    }
+  })
+
+  it('re-attaching restores a legacy numeric pane key alias', async () => {
+    const server = new AgentHookServer()
+    await server.start({ env: 'production' })
+    try {
+      const legacyPane = 'tab-1:0'
+      const env = server.buildPtyEnv()
+      const postHook = (payload: Record<string, unknown>): Promise<Response> =>
+        fetch(`http://127.0.0.1:${env.ORCA_AGENT_HOOK_PORT}/hook/pi`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'X-Orca-Agent-Hook-Token': env.ORCA_AGENT_HOOK_TOKEN
+          },
+          body: JSON.stringify(
+            buildBody(payload, { paneKey: legacyPane, launchToken: 'legacy-token' })
+          )
+        })
+
+      server.registerPaneKeyAlias(legacyPane, PANE, 'pty-legacy')
+      await postHook({ hook_event_name: 'before_agent_start', prompt: 'legacy turn' })
+      expect(server.getStatusSnapshot()).toEqual([
+        expect.objectContaining({ paneKey: PANE, state: 'working' })
+      ])
+
+      server.retirePaneAuthority(PANE)
+      expect(server.restorePaneAuthority(PANE)).toBe(true)
+
+      await postHook({ hook_event_name: 'agent_end' })
+      expect(server.getStatusSnapshot()).toEqual([
+        expect.objectContaining({ paneKey: PANE, state: 'done' })
+      ])
+    } finally {
+      server.stop()
+    }
+  })
+
+  it('does not rebuild a detached pane alias into a closed tab', async () => {
+    const server = new AgentHookServer()
+    await server.start({ env: 'production' })
+    try {
+      const detachedPane = makePaneKey('tab-2', LEAF_2)
+      const env = server.buildPtyEnv()
+      const postHook = (payload: Record<string, unknown>): Promise<Response> =>
+        fetch(`http://127.0.0.1:${env.ORCA_AGENT_HOOK_PORT}/hook/pi`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'X-Orca-Agent-Hook-Token': env.ORCA_AGENT_HOOK_TOKEN
+          },
+          body: JSON.stringify(buildBody(payload, { launchToken: 'detached-closed-token' }))
+        })
+
+      await postHook({ hook_event_name: 'before_agent_start', prompt: 'turn in flight' })
+      server.transferPaneAuthority(PANE, detachedPane, 'pty-detached')
+      server.retirePaneAuthority(detachedPane)
+      // Closed-tab ownership overrides pane restoration.
+      server.dropStatusEntriesByTabPrefix('tab-2')
+      expect(server.restorePaneAuthority(detachedPane)).toBe(false)
+
+      await postHook({ hook_event_name: 'agent_end' })
+      expect(server.getStatusSnapshot()).toEqual([])
+    } finally {
+      server.stop()
+    }
+  })
+
+  // Restoring the original key must not rebuild an alias into the closed owner tab.
+  it('re-opens the original pane instead of rebuilding an alias into a closed tab', async () => {
+    const server = new AgentHookServer()
+    await server.start({ env: 'production' })
+    try {
+      const detachedPane = makePaneKey('tab-2', LEAF_2)
+      const env = server.buildPtyEnv()
+      const postHook = (payload: Record<string, unknown>): Promise<Response> =>
+        fetch(`http://127.0.0.1:${env.ORCA_AGENT_HOOK_PORT}/hook/pi`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'X-Orca-Agent-Hook-Token': env.ORCA_AGENT_HOOK_TOKEN
+          },
+          body: JSON.stringify(buildBody(payload, { launchToken: 'reopen-origin-token' }))
+        })
+
+      await postHook({ hook_event_name: 'before_agent_start', prompt: 'turn in flight' })
+      server.transferPaneAuthority(PANE, detachedPane, 'pty-detached')
+      server.retirePaneAuthority(detachedPane)
+      server.dropStatusEntriesByTabPrefix('tab-2')
+
+      expect(server.restorePaneAuthority(PANE)).toBe(true)
+
+      await postHook({ hook_event_name: 'agent_end' })
+      expect(server.getStatusSnapshot()).toEqual([
+        expect.objectContaining({ paneKey: PANE, state: 'done' })
+      ])
+    } finally {
+      server.stop()
+    }
+  })
+
+  // After tab-ID eviction, the pane fence must remain; use a non-boundary event that cannot lift it.
+  it('leaves a closed tab pane fenced once its tab id is evicted', async () => {
+    const server = new AgentHookServer()
+    await server.start({ env: 'production' })
+    try {
+      const detachedPane = makePaneKey('tab-2', LEAF_2)
+      const env = server.buildPtyEnv()
+      const postHook = (
+        payload: Record<string, unknown>,
+        overrides: Record<string, unknown> = {}
+      ): Promise<Response> =>
+        fetch(`http://127.0.0.1:${env.ORCA_AGENT_HOOK_PORT}/hook/pi`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'X-Orca-Agent-Hook-Token': env.ORCA_AGENT_HOOK_TOKEN
+          },
+          body: JSON.stringify(buildBody(payload, { launchToken: 'evict-token', ...overrides }))
+        })
+
+      await postHook({ hook_event_name: 'before_agent_start', prompt: 'turn in flight' })
+      server.transferPaneAuthority(PANE, detachedPane, 'pty-detached')
+      server.retirePaneAuthority(detachedPane)
+      server.dropStatusEntriesByTabPrefix('tab-2')
+      expect(server.restorePaneAuthority(PANE)).toBe(true)
+
+      for (let i = 0; i <= CLOSED_AGENT_STATUS_TAB_IDS_MAX; i += 1) {
+        server.dropStatusEntriesByTabPrefix(`tab-evict-${i}`)
+      }
+
+      await postHook(
+        { hook_event_name: 'agent_end', prompt: 'after eviction' },
+        { paneKey: detachedPane, tabId: 'tab-2' }
+      )
+      expect(server.getStatusSnapshot()).toEqual([])
+
+      // An unfenced control proves the event itself is active.
+      await postHook(
+        { hook_event_name: 'agent_end', prompt: 'unfenced control' },
+        { paneKey: makePaneKey('tab-9', LEAF_3), tabId: 'tab-9' }
+      )
+      expect(server.getStatusSnapshot()).toHaveLength(1)
+    } finally {
+      server.stop()
+    }
+  })
+
+  // Detached legacy aliases can span tabs; their own closed tab must remain fenced.
+  it('keeps a legacy alias fenced when its own tab closed but the owner tab did not', async () => {
+    const server = new AgentHookServer()
+    await server.start({ env: 'production' })
+    try {
+      const legacyPane = 'tab-1:0'
+      const detachedPane = makePaneKey('tab-2', LEAF_2)
+      const env = server.buildPtyEnv()
+      const postHook = (payload: Record<string, unknown>): Promise<Response> =>
+        fetch(`http://127.0.0.1:${env.ORCA_AGENT_HOOK_PORT}/hook/pi`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'X-Orca-Agent-Hook-Token': env.ORCA_AGENT_HOOK_TOKEN
+          },
+          body: JSON.stringify(
+            buildBody(payload, { paneKey: legacyPane, launchToken: 'legacy-cross-tab-token' })
+          )
+        })
+
+      server.registerPaneKeyAlias(legacyPane, PANE, 'pty-cross')
+      server.transferPaneAuthority(PANE, detachedPane, 'pty-cross')
+      server.retirePaneAuthority(detachedPane)
+      server.dropStatusEntriesByTabPrefix('tab-1')
+
+      // Restore the open owner without reviving an alias from the closed tab.
+      expect(server.restorePaneAuthority(detachedPane)).toBe(true)
+
+      await postHook({ hook_event_name: 'before_agent_start', prompt: 'after tab-1 close' })
+      expect(server.getStatusSnapshot()).toEqual([])
+    } finally {
+      server.stop()
+    }
+  })
+
+  it('does not clobber a newer alias when replaying a retired fence', async () => {
+    const server = new AgentHookServer()
+    await server.start({ env: 'production' })
+    try {
+      const legacyPane = 'tab-1:0'
+      const reboundPane = makePaneKey('tab-1', LEAF_3)
+      const env = server.buildPtyEnv()
+      const postHook = (payload: Record<string, unknown>): Promise<Response> =>
+        fetch(`http://127.0.0.1:${env.ORCA_AGENT_HOOK_PORT}/hook/pi`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'X-Orca-Agent-Hook-Token': env.ORCA_AGENT_HOOK_TOKEN
+          },
+          body: JSON.stringify(
+            buildBody(payload, { paneKey: legacyPane, launchToken: 'rebind-token' })
+          )
+        })
+
+      server.registerPaneKeyAlias(legacyPane, PANE, 'pty-old')
+      server.retirePaneAuthority(PANE)
+      server.registerPaneKeyAlias(legacyPane, reboundPane, 'pty-new')
+      server.restorePaneAuthority(PANE)
+
+      await postHook({ hook_event_name: 'before_agent_start', prompt: 'after rebind' })
+      expect(server.getStatusSnapshot()).toEqual([
+        expect.objectContaining({ paneKey: reboundPane, state: 'working' })
+      ])
+    } finally {
+      server.stop()
+    }
+  })
+
   it('accepts a resumed-session SessionStart after launch authority retires in a reusable pane', async () => {
     const server = new AgentHookServer()
     await server.start({ env: 'production' })
@@ -285,8 +629,7 @@ describe('AgentHookServer listener replay', () => {
       await postHook({ hook_event_name: 'UserPromptSubmit', prompt: 'first launch' })
       server.retirePaneAuthority(PANE)
 
-      // Why: `claude --resume` in the reused shell pane emits only SessionStart while idle;
-      // without the un-retire the resumed session stays rowless until a prompt (STA-3386).
+      // Idle Claude resume emits only SessionStart; restoration cannot wait for a prompt.
       await postHook({ hook_event_name: 'SessionStart', source: 'resume' })
 
       expect(server.getStatusSnapshot()).toEqual([
@@ -364,7 +707,13 @@ describe('AgentHookServer closed-tab suppression bound', () => {
       internals.markTabClosedForAgentStatus(`closed-tab-${i}`)
     }
 
-    // Set stays bounded; oldest ids are evicted, most-recent are retained.
+    const refreshedTab = `closed-tab-${total - CLOSED_AGENT_STATUS_TAB_IDS_MAX}`
+    const nextOldestTab = `closed-tab-${total - CLOSED_AGENT_STATUS_TAB_IDS_MAX + 1}`
+    internals.markTabClosedForAgentStatus(refreshedTab)
+    internals.markTabClosedForAgentStatus('closed-tab-next')
+
+    expect(internals.closedAgentStatusTabIds.has(refreshedTab)).toBe(true)
+    expect(internals.closedAgentStatusTabIds.has(nextOldestTab)).toBe(false)
     expect(internals.closedAgentStatusTabIds.size).toBe(CLOSED_AGENT_STATUS_TAB_IDS_MAX)
     expect(internals.closedAgentStatusTabIds.has('closed-tab-0')).toBe(false)
     expect(internals.closedAgentStatusTabIds.has(`closed-tab-${total - 1}`)).toBe(true)

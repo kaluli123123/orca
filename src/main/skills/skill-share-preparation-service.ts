@@ -1,15 +1,18 @@
 import { randomUUID } from 'node:crypto'
-import { mkdir, rm } from 'node:fs/promises'
+import { mkdir, realpath, rm } from 'node:fs/promises'
 import { join } from 'node:path'
-import type {
-  SkillSharePreview,
-  SkillShareProgress,
-  SkillSharePublishInput,
-  SkillSharePublishOperation
+import {
+  SKILL_SHARE_NAME_TAKEN_ERROR,
+  type SkillSharePreview,
+  type SkillShareProgress,
+  type SkillSharePublishInput,
+  type SkillSharePublishOperation
 } from '../../shared/skill-sharing-contract'
 import type { SkillCloudVersion } from '../../shared/skill-cloud-contract'
 import { createSkillBundleArchive, type CreatedSkillBundle } from './skill-bundle-creation'
 import type { SkillCloudService } from './skill-cloud-service'
+import { SkillCloudRequestError } from './skill-cloud-request-error'
+import { readSkillInstallReceipt } from './skill-install-provenance'
 
 const PREPARATION_TTL_MS = 30 * 60 * 1000
 const MAX_PREPARATIONS = 8
@@ -65,7 +68,15 @@ export class SkillSharePreparationService {
 
   constructor(
     private readonly root: string,
-    private readonly cloud: Pick<SkillCloudService, 'createShare' | 'publishVersion'>
+    private readonly cloud: Pick<
+      SkillCloudService,
+      'createShare' | 'findOwnedPackageId' | 'publishVersion'
+    >,
+    private readonly options: {
+      initializeRoot?: () => Promise<void>
+      installStateDirectory?: string
+      platform?: NodeJS.Platform
+    } = {}
   ) {}
 
   async prepare(input: {
@@ -85,14 +96,46 @@ export class SkillSharePreparationService {
     const directory = join(this.root, preparationId)
     try {
       await mkdir(directory, { recursive: true, mode: 0o700 })
-      const sources =
+      const requestedSources =
         input.sources ?? (input.sourceDirectory ? [{ sourceDirectory: input.sourceDirectory }] : [])
+      const sources = await Promise.all(
+        requestedSources.map(async (source) => {
+          if (
+            (this.options.platform ?? process.platform) !== 'win32' ||
+            !this.options.installStateDirectory
+          ) {
+            return source
+          }
+          let receipt = await readSkillInstallReceipt(
+            this.options.installStateDirectory,
+            source.sourceDirectory
+          )
+          if (!receipt) {
+            const physicalSource = await realpath(source.sourceDirectory).catch(() => null)
+            if (physicalSource) {
+              receipt = await readSkillInstallReceipt(
+                this.options.installStateDirectory,
+                physicalSource
+              )
+            }
+          }
+          return receipt?.fileModes
+            ? {
+                ...source,
+                executablePaths: new Set(
+                  receipt.fileModes.filter((file) => file.executable).map((file) => file.path)
+                )
+              }
+            : source
+        })
+      )
+      const bundleName = input.bundleName ?? 'shared-skill'
       const created = await createSkillBundleArchive({
         sources,
-        bundleName: input.bundleName ?? 'shared-skill',
+        bundleName,
         description: input.description,
         archivePath: join(directory, 'package.tar.gz'),
-        packageId: input.packageId ?? randomUUID(),
+        packageId: input.packageId ?? (await this.packageIdForName(bundleName)),
         versionId: randomUUID()
       })
       const value: Preparation = {
@@ -171,6 +214,17 @@ export class SkillSharePreparationService {
     }
   }
 
+  // Cloud names have one live package; its id is part of archive identity.
+  private async packageIdForName(bundleName: string): Promise<string> {
+    const owned = await this.cloud.findOwnedPackageId(bundleName, {}).catch((error: unknown) => {
+      throw error instanceof SkillCloudRequestError && error.code === 'skill_package_name_taken'
+        ? new Error(SKILL_SHARE_NAME_TAKEN_ERROR, { cause: error })
+        : error
+    })
+    // Preview works signed out; publish handles authentication.
+    return (owned.status === 'ok' && owned.value) || randomUUID()
+  }
+
   cancel(preparationId: string): void {
     this.preparations.get(preparationId)?.controller?.abort()
   }
@@ -198,10 +252,22 @@ export class SkillSharePreparationService {
   }
 
   private async initialize(): Promise<void> {
-    this.initialized ??= (async () => {
-      await rm(this.root, { recursive: true, force: true })
-      await mkdir(this.root, { recursive: true, mode: 0o700 })
-    })()
+    if (!this.initialized) {
+      const initialization = (async () => {
+        if (this.options.initializeRoot) {
+          await this.options.initializeRoot()
+        } else {
+          await rm(this.root, { recursive: true, force: true })
+          await mkdir(this.root, { recursive: true, mode: 0o700 })
+        }
+      })()
+      this.initialized = initialization
+      void initialization.catch(() => {
+        if (this.initialized === initialization) {
+          this.initialized = null
+        }
+      })
+    }
     await this.initialized
   }
 }

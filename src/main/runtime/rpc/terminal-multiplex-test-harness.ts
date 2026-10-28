@@ -4,6 +4,7 @@ import type { RpcRequest } from './core'
 import type { OrcaRuntimeService } from '../orca-runtime'
 import { TERMINAL_METHODS } from './methods/terminal'
 import type { RuntimeTerminalWait } from '../../../shared/runtime-types'
+import { createSubscriptionRegistryDouble } from './subscription-registry-test-double'
 import {
   TerminalStreamOpcode,
   decodeTerminalStreamFrame,
@@ -15,19 +16,23 @@ export const SET_OUTPUT_PAUSED_OPCODE = 16 as TerminalStreamOpcode
 export const WRITE_UNAVAILABLE_OPCODE = 17 as TerminalStreamOpcode
 
 export function stubRuntime(overrides: Partial<OrcaRuntimeService> = {}): OrcaRuntimeService {
+  // Admission registers even streams that never reach a PTY.
+  const registry = createSubscriptionRegistryDouble()
   const serializeAuthoritativeTerminalBuffer =
     overrides.serializeAuthoritativeTerminalBuffer ??
     ((ptyId: string, opts?: { scrollbackRows?: number }) =>
       overrides.serializeTerminalBuffer?.(ptyId, opts))
+  // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: This partial runtime supplies the terminal RPC methods these tests invoke.
   return {
     getRuntimeId: () => 'test-runtime',
-    // Why: every multiplex stream registers as a remote view subscriber for
-    // Phase-5 query-authority suppression (terminal-query-authority.md).
+    getPtyExecutionHostMetadata: () => ({}),
+    getTerminalLaunchResult: () => undefined,
+    subscribeToPtyExit: vi.fn(() => vi.fn()),
+    // View registration suppresses competing query responders (terminal-query-authority.md).
     registerRemoteTerminalViewSubscriber: () => () => {},
-    // Why: the multiplex subscribe path resolves handles via
-    // resolveLiveLeafForHandle (#7718). Default to a live pty so tests that
-    // only stub the legacy resolveLeafForHandle still bind; tests that need a
-    // null/stale leaf override this explicitly.
+    isSoleRemoteTerminalQueryOwner: () => false,
+    answerYieldedTerminalQueries: vi.fn(),
+    // Default guarded handle lookup to live PTY for legacy harness stubs; null/stale cases override it (#7718).
     resolveLiveLeafForHandle: vi.fn().mockReturnValue({ ptyId: 'pty-1' }),
     requestRendererTerminalTabMount: vi.fn().mockReturnValue(true),
     updateRemoteDesktopViewer: vi.fn().mockResolvedValue(true),
@@ -38,6 +43,7 @@ export function stubRuntime(overrides: Partial<OrcaRuntimeService> = {}): OrcaRu
     isRemoteDesktopViewerOwner: vi.fn().mockReturnValue(false),
     serializeAuthoritativeTerminalBuffer,
     getPtyOutputSequence: vi.fn().mockReturnValue(0),
+    registerOwnedSubscriptionCleanup: registry.registerOwnedSubscriptionCleanup,
     ...overrides
   } as OrcaRuntimeService
 }
@@ -57,7 +63,7 @@ export function startDesktopMultiplexSubscribe(
     number,
     (frame: NonNullable<ReturnType<typeof decodeTerminalStreamFrame>>) => void
   >()
-  const cleanups = new Map<string, () => void>()
+  const registry = createSubscriptionRegistryDouble()
   const runtime = stubRuntime({
     readTerminal: vi.fn().mockResolvedValue({ tail: [], truncated: false }),
     serializeTerminalBuffer: vi.fn().mockResolvedValue({ data: 'snapshot', cols: 120, rows: 40 }),
@@ -70,12 +76,11 @@ export function startDesktopMultiplexSubscribe(
     subscribeToDriverChanges: vi.fn().mockReturnValue(vi.fn()),
     getTerminalFitOverride: vi.fn().mockReturnValue(null),
     getDriver: vi.fn().mockReturnValue({ kind: 'idle' }),
-    registerSubscriptionCleanup: vi.fn((id: string, cleanup: () => void) => {
-      cleanups.set(id, cleanup)
-    }),
-    cleanupSubscription: vi.fn((id: string) => {
-      cleanups.get(id)?.()
-    }),
+    registerSubscriptionCleanup: vi.fn(registry.registerSubscriptionCleanup),
+    registerOwnedSubscriptionCleanup: vi.fn(registry.registerOwnedSubscriptionCleanup),
+    cleanupSubscription: vi.fn(registry.cleanupSubscription),
+    cleanupSubscriptionIfOwnedByConnection: vi.fn(registry.cleanupSubscriptionIfOwnedByConnection),
+    cleanupSubscriptionsForConnection: vi.fn(registry.cleanupSubscriptionsForConnection),
     ...overrides,
     waitForTerminal:
       overrides.waitForTerminal ?? vi.fn(() => new Promise<RuntimeTerminalWait>(() => {}))
@@ -118,7 +123,7 @@ export function startDesktopMultiplexSubscribe(
       }
     }
   )
-  return { messages, binaryFrames, handlers, cleanups, runtime, dispatchPromise }
+  return { messages, binaryFrames, handlers, registry, runtime, dispatchPromise }
 }
 
 export function sendDesktopMultiplexSubscribe(

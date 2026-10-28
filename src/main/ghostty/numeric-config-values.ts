@@ -1,8 +1,4 @@
-import { normalizeTerminalPadding } from '../../shared/terminal-padding-settings'
-
-// Why: `Number("1e10")` succeeds and passes `Number.isInteger`, so a Ghostty
-// config with `window-padding-x = 1e9` would sail through the mapper and land
-// an absurd value in the store. Restrict to plain decimal integers.
+// Reject exponent notation: Number.isInteger also accepts values such as 1e10.
 const STRICT_INT_RE = /^-?\d+$/
 export const parseStrictInt = (v: string): number | null => {
   if (!STRICT_INT_RE.test(v)) {
@@ -12,8 +8,7 @@ export const parseStrictInt = (v: string): number | null => {
   return Number.isFinite(num) ? num : null
 }
 
-// Why: Ghostty accepts "top,bottom" / "left,right" pairs for window paddings,
-// but Orca stores an integer per axis — preserve the nearest total inset.
+// Average paired padding values to preserve total padding with Orca's symmetric per-axis setting.
 export const parsePaddingValue = (v: string): number | null => {
   const parts = v.split(',')
   if (parts.length > 2) {
@@ -27,5 +22,5 @@ export const parsePaddingValue = (v: string): number | null => {
     }
     nums.push(num)
   }
-  return normalizeTerminalPadding(nums.reduce((sum, num) => sum + num, 0) / nums.length)
+  return nums.reduce((sum, num) => sum + num, 0) / nums.length
 }

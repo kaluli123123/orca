@@ -17,10 +17,7 @@ export type WorktreeAwarenessMocks = {
 }
 
 export async function createRuntimeClientModuleMock(mocks: RuntimeClientModuleMocks) {
-  // Why: re-export the REAL error classes rather than redefining them. format.ts
-  // narrows with `instanceof` against ./runtime/types, so a look-alike class
-  // here would make every CLI error fall through to the generic `runtime_error`
-  // shape — mirroring the barrel keeps the mock faithful to production.
+  // Error formatting uses instanceof, so the mock must preserve the production classes.
   const { RuntimeClientError, RuntimeRpcFailureError } = await import('./runtime/types.js')
 
   class RuntimeClient {
@@ -83,7 +80,30 @@ export async function createChildProcessModuleMock(spawnMock: Mock) {
   }
 }
 
-/** Installs the env-var save/restore + mock-reset hooks shared by the CLI worktree-awareness suites. */
+export function pairRuntimeEnvironment(listEnvironmentsMock: Mock, id: string, name = id): void {
+  listEnvironmentsMock.mockReturnValue([
+    {
+      id,
+      name,
+      createdAt: 1,
+      updatedAt: 1,
+      lastUsedAt: null,
+      runtimeId: null,
+      endpoints: [
+        {
+          id: `ws-${id}`,
+          kind: 'websocket',
+          label: 'WebSocket',
+          endpoint: 'ws://127.0.0.1:6768',
+          deviceToken: 'token',
+          publicKeyB64: 'pk'
+        }
+      ],
+      preferredEndpointId: `ws-${id}`
+    }
+  ])
+}
+
 export function useWorktreeAwarenessEnvironment(mocks: WorktreeAwarenessMocks): void {
   const originalTerminalHandle = process.env.ORCA_TERMINAL_HANDLE
   const originalUserDataPath = process.env.ORCA_USER_DATA_PATH
@@ -101,8 +121,7 @@ export function useWorktreeAwarenessEnvironment(mocks: WorktreeAwarenessMocks): 
     delete process.env.ORCA_DEV_CLI_INVOCATION
     delete process.env.ORCA_WORKSPACE_ID
     delete process.env.ORCA_WORKTREE_ID
-    // Isolate the pane key so claude-teams tests that set it don't leak a
-    // senderPaneKey into later orchestration.send assertions.
+    // Prevent claude-teams tests from leaking senderPaneKey into later assertions.
     delete process.env.ORCA_PANE_KEY
     mocks.serveOrcaAppMock.mockReset()
     mocks.getDefaultUserDataPathMock.mockClear()

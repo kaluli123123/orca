@@ -12,14 +12,20 @@ export const ANTIGRAVITY_EVENTS = [
     windowsWrapperFileName: 'antigravity-post-invocation.cmd'
   },
   { eventName: 'Stop', schema: 'direct', windowsWrapperFileName: 'antigravity-stop.cmd' },
-  // Why: Antigravity requires PreToolUse hooks to make permission decisions.
-  // Orca's hook is observational, so installing there can block user tools.
+  {
+    eventName: 'PreToolUse',
+    schema: 'tool',
+    windowsWrapperFileName: 'antigravity-pre-tool-use.cmd'
+  },
   {
     eventName: 'PostToolUse',
     schema: 'tool',
     windowsWrapperFileName: 'antigravity-post-tool-use.cmd'
   }
 ] as const
+
+// PreToolUse treats silence as denial; "ask" preserves the user’s permission policy.
+export const ANTIGRAVITY_PRE_TOOL_USE_DECISION = '{"decision":"ask"}'
 
 export type AntigravityEvent = (typeof ANTIGRAVITY_EVENTS)[number]
 

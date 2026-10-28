@@ -1,4 +1,3 @@
-/** Turns a worker escalation into a dispatch failure, honoring the circuit breaker. */
 import type { OrchestrationDb } from './db'
 import type { MessageRow } from './types'
 
@@ -9,16 +8,17 @@ export function applyEscalationToDispatch(
   onLog: (msg: string) => void
 ): string | null {
   let taskId: string | undefined
+  let dispatchId: string | undefined
   if (msg.payload) {
     try {
       const payload = JSON.parse(msg.payload)
       taskId = payload.taskId
-    } catch {
-      // Escalation without structured payload — log subject as context
-    }
+      dispatchId = payload.dispatchId
+    } catch {}
   }
 
-  if (!taskId) {
+  if (!taskId || !dispatchId) {
+    onLog(`Rejected escalation from ${msg.from_handle}: missing exact Dispatch binding`)
     return null
   }
 
@@ -27,12 +27,32 @@ export function applyEscalationToDispatch(
     return null
   }
 
-  const dispatch = db.getDispatchContext(taskId)
-  if (!dispatch) {
+  const dispatch = db.getDispatchContextById(dispatchId)
+  if (!dispatch || dispatch.task_id !== taskId) {
+    onLog(`Rejected escalation from ${msg.from_handle}: Dispatch does not own Task ${taskId}`)
+    return null
+  }
+  if (
+    !db.isDispatchMessageSender({
+      dispatchId: dispatch.id,
+      handle: msg.from_handle,
+      paneKey: msg.sender_pane_key,
+      allowCanonicalDispatchHandle: true
+    })
+  ) {
+    onLog(`Rejected escalation from ${msg.from_handle}: it does not own Task ${taskId}`)
     return null
   }
 
-  // Why: fail the dispatch to increment the circuit breaker; under threshold the task returns to 'pending' for re-dispatch next tick.
+  const worker = db.getWorkerDispatch(dispatch.id)
+  if (worker && !['failed', 'succeeded', 'stopped', 'abandoned'].includes(worker.state)) {
+    onLog(
+      `Task ${taskId} remains dispatched until supervised worker ${dispatch.id} stops or reports.`
+    )
+    return null
+  }
+
+  // failDispatch advances the circuit breaker and requeues below-threshold tasks.
   const updated = db.failDispatch(dispatch.id, msg.subject)
   if (updated?.status === 'circuit_broken') {
     onLog(`Task ${taskId} circuit broken after repeated failures`)
