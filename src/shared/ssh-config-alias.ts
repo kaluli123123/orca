@@ -1,18 +1,15 @@
-/**
- * Canonical form for an SSH config alias. OpenSSH matches Host patterns
- * case-insensitively, so the picker, import reconciliation, delete tombstones
- * and the save-time duplicate check must all compare aliases through this.
- */
+/** OpenSSH Host matching is case-insensitive; share normalization across picker/import/tombstone/duplicate checks. */
 export function normalizeSshConfigAlias(alias: string | null | undefined): string {
   return alias ? alias.trim().toLowerCase() : ''
 }
 
-/** The machine a target actually reaches: hostname, port and user, normalized.
- *  Empty when the host is unknown, so an unresolved alias never collides. */
+/** Host, port, case-sensitive user and route identify an endpoint; unknown hosts never match. */
 export function sshEndpointIdentity(target: {
   host?: string | null
   port?: number | null
   username?: string | null
+  jumpHost?: string | null
+  proxyCommand?: string | null
 }): string {
   const host = target.host?.trim().toLowerCase() ?? ''
   if (!host) {
@@ -25,5 +22,5 @@ export function sshEndpointIdentity(target: {
     target.port <= 65_535
       ? target.port
       : 22
-  return `${host}\u0000${port}\u0000${target.username?.trim() ?? ''}`
+  return `${host}\u0000${port}\u0000${target.username?.trim() ?? ''}\u0000${target.jumpHost?.trim() ?? ''}\u0000${target.proxyCommand?.trim() ?? ''}`
 }

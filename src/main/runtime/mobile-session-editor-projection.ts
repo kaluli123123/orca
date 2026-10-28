@@ -1,15 +1,16 @@
-/**
- * Editor tabs a headless host persisted, such as those a converted SSH host's migration carried
- * in. No renderer publishes them there, so the host projects and retires them itself; a paired
- * desktop mirrors what it lists.
- */
+/** Headless hosts project/retire persisted editors themselves; paired desktops mirror them without a publishing renderer. */
 import type {
   RuntimeMobileSessionFileTab,
   RuntimeMobileSessionMarkdownTab,
   RuntimeMobileSessionTabsSnapshot
 } from '../../shared/runtime-types'
 import type { Tab } from '../../shared/tab-types'
-import { editorTabShowsFile } from '../../shared/workspace-layout/workspace-layout-editor-tab-file'
+import { ORCA_LAYOUT_OWNER_IS_MAIN } from '../../shared/layout-owner-switch'
+import { editorRowHost } from '../../shared/session-tab-file-host'
+import {
+  editorTabNamesFile,
+  sameEditorFile
+} from '../../shared/workspace-layout/workspace-layout-editor-tab-file'
 import type {
   PersistedOpenFile,
   WorkspaceSessionState
@@ -17,14 +18,27 @@ import type {
 
 export type HeadlessEditorTab = RuntimeMobileSessionMarkdownTab | RuntimeMobileSessionFileTab
 
+function editorWorkspace(session: WorkspaceSessionState, worktreeId: string) {
+  return {
+    worktreeId,
+    tabs: session.unifiedTabs?.[worktreeId] ?? [],
+    editorFiles: session.openFilesByWorktree?.[worktreeId]
+  }
+}
+
 function editorUnifiedTab(
   session: WorkspaceSessionState,
   worktreeId: string,
   file: PersistedOpenFile
 ): Tab | undefined {
-  return (session.unifiedTabs?.[worktreeId] ?? []).find(
-    (tab) => tab.contentType === 'editor' && editorTabShowsFile(tab.entityId, file, worktreeId)
+  const workspace = editorWorkspace(session, worktreeId)
+  return workspace.tabs.find(
+    (tab) => tab.contentType === 'editor' && editorTabNamesFile(workspace, tab.entityId, file)
   )
+}
+
+function listedTabId(unifiedTab: Tab | undefined, file: PersistedOpenFile): string {
+  return unifiedTab?.id ?? file.filePath
 }
 
 function editorTab(
@@ -35,8 +49,7 @@ function editorTab(
   const unifiedTab = editorUnifiedTab(session, worktreeId, file)
   const activeFileId = session.activeFileIdByWorktree?.[worktreeId]
   const common = {
-    // A file's id is its path, which is also the unified tab's entity.
-    id: unifiedTab?.id ?? file.filePath,
+    id: listedTabId(unifiedTab, file),
     title: file.relativePath.split(/[\\/]/).pop() || file.relativePath || 'File',
     filePath: file.filePath,
     relativePath: file.relativePath,
@@ -44,9 +57,10 @@ function editorTab(
     isActive:
       session.activeTabTypeByWorktree?.[worktreeId] === 'editor' &&
       !!activeFileId &&
-      editorTabShowsFile(activeFileId, file, worktreeId),
+      editorTabNamesFile(editorWorkspace(session, worktreeId), activeFileId, file),
     color: unifiedTab?.color ?? null,
-    isPinned: unifiedTab?.isPinned === true
+    isPinned: unifiedTab?.isPinned === true,
+    ...editorRowHost(file)
   }
   if (file.language === 'markdown') {
     return {
@@ -69,12 +83,29 @@ export function buildHeadlessMobileSessionEditorTabs(
   worktreeId: string,
   session: WorkspaceSessionState
 ): HeadlessEditorTab[] {
-  return (session.openFilesByWorktree?.[worktreeId] ?? []).map((file) =>
-    editorTab(session, worktreeId, file)
-  )
+  // A row mirrored from a paired host is that host's to publish, as in the window's publication.
+  return (session.openFilesByWorktree?.[worktreeId] ?? [])
+    .filter((file) => file.mirroredFromRuntimeSession !== true)
+    .map((file) => editorTab(session, worktreeId, file))
 }
 
-/** The session without one persisted editor tab, or null when it holds no such tab. */
+/** Resolve by listed id: multiple owners can hold the same path. */
+export function findListedEditorFile(
+  files: readonly PersistedOpenFile[],
+  session: WorkspaceSessionState,
+  worktreeId: string,
+  tab: Pick<HeadlessEditorTab, 'id' | 'filePath'>
+): PersistedOpenFile | undefined {
+  const samePath = files.filter((candidate) => candidate.filePath === tab.filePath)
+  // Ambiguous path fallback could retire another owner's record.
+  return samePath.length < 2
+    ? samePath[0]
+    : samePath.find(
+        (candidate) =>
+          listedTabId(editorUnifiedTab(session, worktreeId, candidate), candidate) === tab.id
+      )
+}
+
 export function retireHeadlessEditorTab(
   session: WorkspaceSessionState,
   worktreeId: string,
@@ -82,7 +113,9 @@ export function retireHeadlessEditorTab(
   force = false
 ): WorkspaceSessionState | null {
   const files = session.openFilesByWorktree?.[worktreeId] ?? []
-  const file = files.find((candidate) => candidate.filePath === tab.filePath)
+  const file = ORCA_LAYOUT_OWNER_IS_MAIN
+    ? findListedEditorFile(files, session, worktreeId, tab)
+    : files.find((candidate) => candidate.filePath === tab.filePath)
   if (!file) {
     return null
   }
@@ -100,12 +133,13 @@ export function retireHeadlessEditorTab(
     ...(group.recentTabIds ? { recentTabIds: withoutTab(group.recentTabIds) } : {})
   }))
   const activeFileId = session.activeFileIdByWorktree?.[worktreeId]
-  const wasActiveFile = !!activeFileId && editorTabShowsFile(activeFileId, file, worktreeId)
+  const wasActiveFile =
+    !!activeFileId && editorTabNamesFile(editorWorkspace(session, worktreeId), activeFileId, file)
   return {
     ...session,
     openFilesByWorktree: {
       ...session.openFilesByWorktree,
-      [worktreeId]: files.filter((file) => file.filePath !== tab.filePath)
+      [worktreeId]: files.filter((candidate) => !sameEditorFile(candidate, file))
     },
     unifiedTabs: {
       ...session.unifiedTabs,
@@ -135,7 +169,6 @@ export type HeadlessEditorRetirementHost = {
   storeMobileSessionSnapshot(worktreeId: string, snapshot: RuntimeMobileSessionTabsSnapshot): void
 }
 
-/** Retires a listed editor from the host's own session and republishes; false when not found. */
 export function retireHeadlessMobileSessionEditorTab(
   host: HeadlessEditorRetirementHost,
   worktreeId: string,
@@ -151,7 +184,7 @@ export function retireHeadlessMobileSessionEditorTab(
     return false
   }
   host.setWorkspaceSessionForWorktree(worktreeId, next)
-  // Why drop it first: a rebuild that finds no tabs left keeps the old snapshot.
+  // Clear first: an empty rebuild otherwise retains the old snapshot.
   const existing = host.mobileSessionTabsByWorktree.get(worktreeId)
   if (existing) {
     host.storeMobileSessionSnapshot(worktreeId, {

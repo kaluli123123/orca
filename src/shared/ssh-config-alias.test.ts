@@ -42,6 +42,22 @@ describe('sshEndpointIdentity', () => {
     )
   })
 
+  it('keeps distinct jump hosts and proxy commands separate', () => {
+    const endpoint = { host: '10.0.0.5', username: 'deploy' }
+    expect(sshEndpointIdentity({ ...endpoint, jumpHost: 'bastion-a' })).not.toBe(
+      sshEndpointIdentity({ ...endpoint, jumpHost: 'bastion-b' })
+    )
+    expect(sshEndpointIdentity({ ...endpoint, proxyCommand: 'ssh a -W %h:%p' })).not.toBe(
+      sshEndpointIdentity({ ...endpoint, proxyCommand: 'ssh b -W %h:%p' })
+    )
+    expect(sshEndpointIdentity(endpoint)).not.toBe(
+      sshEndpointIdentity({ ...endpoint, jumpHost: 'bastion-a' })
+    )
+    expect(sshEndpointIdentity({ ...endpoint, jumpHost: 'bastion-a' })).toBe(
+      sshEndpointIdentity({ ...endpoint, jumpHost: ' bastion-a ' })
+    )
+  })
+
   it('is empty for an unknown host so unresolved entries never collide', () => {
     expect(sshEndpointIdentity({ host: '', port: 22, username: 'me' })).toBe('')
     expect(sshEndpointIdentity({ host: '   ', port: 22, username: 'me' })).toBe('')
