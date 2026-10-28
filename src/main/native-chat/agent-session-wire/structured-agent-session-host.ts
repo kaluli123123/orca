@@ -1,5 +1,5 @@
 import { continuationContextReader as contextReader } from './structured-agent-session-continuation-context'
-import { StructuredConversationCommandController } from './structured-conversation-command-controller'
+import { StructuredConversationCommandController as CommandController } from './structured-conversation-command-controller'
 // Serialize durable mutations per conversation; open at rest and start a child only when work needs it.
 
 import type { AgentSessionSubscribeInput } from './structured-agent-session-subscribers'
@@ -31,13 +31,9 @@ import * as sessionLogger from './structured-agent-session-logger'
 import { sleepStructuredAgentSessionWorkspace } from './structured-agent-session-workspace-sleep'
 export type { StructuredAgentSessionHostDeps } from './structured-agent-session-host-types'
 import * as transientRecovery from './structured-agent-session-transient-recovery-wiring'
-import type { StructuredAgentSessionTransientRecovery } from './structured-agent-session-transient-recovery'
 
 export class StructuredAgentSessionHost {
-  private readonly conversationCommands = new StructuredConversationCommandController(
-    () => this.mutationContext(),
-    this
-  )
+  private readonly conversationCommands = new CommandController(() => this.mutationContext(), this)
   private readonly sessions = new StructuredAgentSessionConversations({
     observe: (id, journal, rows) => this.clientDelivery.requestFailures.observe(id, journal, rows),
     forget: (id) => this.clientDelivery.requestFailures.forget(id),
@@ -72,7 +68,7 @@ export class StructuredAgentSessionHost {
   private readonly eventRecovery: StructuredAgentSessionEventRecovery
   private readonly backgroundTasks: StructuredAgentSessionBackgroundTaskChannel
   readonly restartResume: resume.StructuredAgentSessionRestartResume
-  private readonly transientRecovery: StructuredAgentSessionTransientRecovery
+  private readonly transientRecovery
 
   constructor(readonly deps: HostTypes.StructuredAgentSessionHostDeps) {
     // Collaborators share a logger wrapper that cannot fail the operation it reports.
@@ -187,17 +183,15 @@ export class StructuredAgentSessionHost {
     } satisfies StructuredAgentSessionLifetimeContext
   }
 
-  private attachContext(): StructuredAgentSessionAttachContext {
-    return {
-      ...this.lifetimeContext(),
-      subscribers: this.subscribers,
-      tasks: this.tasks,
-      reconcileLeases: (sessionId) => this.reconcileLeases(sessionId),
-      serialize: (sessionId, task) => this.serialize(sessionId, task),
-      openProviderChild: this.eventRecovery.openProviderChild,
-      openConversation: this.conversationDelivery.open
-    }
-  }
+  private attachContext = (): StructuredAgentSessionAttachContext => ({
+    ...this.lifetimeContext(),
+    subscribers: this.subscribers,
+    tasks: this.tasks,
+    reconcileLeases: (sessionId) => this.reconcileLeases(sessionId),
+    serialize: (sessionId, task) => this.serialize(sessionId, task),
+    openProviderChild: this.eventRecovery.openProviderChild,
+    openConversation: this.conversationDelivery.open
+  })
   /** Release resources; user-close cancels cut turns, while eviction leaves their failure reportable. */
   close: lifetime.StructuredAgentSessionConversationLifetime['close'] = (sessionId, cause) =>
     this.transientRecovery.beforeUserAction(sessionId, () => this.lifetime.close(sessionId, cause))
@@ -256,7 +250,9 @@ export class StructuredAgentSessionHost {
 
   /** Quit stops delivery, queued-card handover, and automatic continuation. */
   stopDelivery = () =>
-    [this.conversationDelivery, this.queued.drain, this.transientRecovery].forEach((d) => d.dispose())
+    [this.conversationDelivery, this.queued.drain, this.transientRecovery].forEach((d) =>
+      d.dispose()
+    )
 
   async flushAllStreamedEvents(options?: { trigger?: 'quit' | 'update' }): Promise<void> {
     this.stopDelivery()
@@ -284,8 +280,8 @@ export class StructuredAgentSessionHost {
 
   private mutations = transientRecovery.createTransientRecoveryMutationDelegates(
     () => this.transientRecovery,
-    () => this.mutationContext(),
-    () => this.attachContext(),
+    this.mutationContext,
+    this.attachContext,
     this.conversationCommands
   )
   send = this.mutations.send

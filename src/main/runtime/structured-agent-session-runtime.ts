@@ -31,8 +31,21 @@ import {
 import type { RuntimeAgentAccountHomeResolver } from './structured-agent-model-catalog-wiring'
 import type { ClaudeCliFlagSupport } from '../claude/claude-cli-flag-support'
 import { migrateLegacyNativeChatVisualsFolders } from '../native-chat/native-chat-scratch-folder-migration'
+import type { RuntimeStore } from './runtime-store-contract'
 
 export { hasPersistedStructuredAgentSessionStore } from './agent-session-record-store-slot'
+
+export function transientRecoveryPolicy(readStore: () => RuntimeStore) {
+  return {
+    enabled: () => readStore().getSettings().nativeChatAutoContinueOnTransientError === true,
+    onDisabled: (listener: () => void) =>
+      readStore().onSettingsChanged?.((updates) => {
+        if (updates.nativeChatAutoContinueOnTransientError === false) {
+          listener()
+        }
+      }) ?? (() => {})
+  }
+}
 
 export type StructuredAgentSessionRuntimeDeps = StructuredAgentSessionTransportOverrides & {
   stateDirectory: string

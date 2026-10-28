@@ -22,7 +22,7 @@ import type { Repo } from '../../../shared/repo-types'
 import type { StructuredAgentId } from '../../../shared/agent-session-provider-handle'
 import type { GlobalSettings } from '../../../shared/global-settings-types'
 import { enrichMissingRepoGitRemoteIdentities } from '../../repo-git-remote-identity-enrichment'
-import { ensureStructuredAgentSessionHost as installStructuredAgentSessionHost } from '../structured-agent-session-runtime'
+import * as structuredSessions from '../structured-agent-session-runtime'
 import {
   createStructuredAttentionMobileDelivery,
   readStructuredAttentionWorkspaceLabels
@@ -243,7 +243,7 @@ export abstract class OrcaRuntimeWithGetWorktreePs extends OrcaRuntimeWithWorktr
         logger
       )
     )
-    await installStructuredAgentSessionHost({
+    await structuredSessions.ensureStructuredAgentSessionHost({
       stateDirectory: getProfileUserDataPath(),
       hostId: LOCAL_EXECUTION_HOST_ID,
       claimKeyId: this.agentSessionClaimSigner.keyId,
@@ -262,16 +262,7 @@ export abstract class OrcaRuntimeWithGetWorktreePs extends OrcaRuntimeWithWorktr
       nativeChatVisuals: {
         isEnabled: () => this.requireStore().getSettings().nativeChatInlineVisuals !== false
       },
-      transientRecovery: {
-        enabled: () =>
-          this.requireStore().getSettings().nativeChatAutoContinueOnTransientError === true,
-        onDisabled: (listener) =>
-          this.requireStore().onSettingsChanged?.((updates) => {
-            if (updates.nativeChatAutoContinueOnTransientError === false) {
-              listener()
-            }
-          }) ?? (() => {})
-      },
+      transientRecovery: structuredSessions.transientRecoveryPolicy(() => this.requireStore()),
       resolveShellEnvironmentPolicy: () =>
         nativeChatShellEnvironmentPolicy(this.requireStore().getSettings()),
       resolveClaudeAuthPolicy: () =>
