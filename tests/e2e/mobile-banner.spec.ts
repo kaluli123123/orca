@@ -4,7 +4,7 @@ import { pairedRuntimeConnectionFromOffer } from '../../src/shared/paired-runtim
 import {
   subscribeRemoteRuntimeRequest,
   type RemoteRuntimeSubscription
-} from '../../src/shared/remote-runtime-client'
+} from '../../src/shared/remote-runtime/remote-runtime-client'
 import type { BrowserScreencastResult } from '../../src/shared/runtime-browser-contracts'
 import { test, expect } from './helpers/orca-app'
 import {
@@ -87,6 +87,7 @@ test('mobile subscribe mounts overlay; collapse → chip; Take back dismisses', 
 })
 
 test('browser Take back releases its retained driver state', async ({ orcaPage }) => {
+  // Pairing admission and first screencast setup can exceed the default test timeout on cold builds.
   test.setTimeout(180_000)
   let mobileSubscription: RemoteRuntimeSubscription | null = null
   try {

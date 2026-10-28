@@ -404,9 +404,7 @@ export default function BrowserAddressBar({
                 // Why: like Chrome, typing after Escape brings the suggestions back.
                 setOpen(true)
                 const completed = completeTyping(event, nextValue)
-                if (completed !== null) {
-                  prePreviewValueRef.current = nextValue
-                }
+                prePreviewValueRef.current = completed !== null ? nextValue : null
                 noteTyped(nextValue)
                 onChange(completed ?? nextValue)
               }}
@@ -423,10 +421,8 @@ export default function BrowserAddressBar({
             align="start"
             sideOffset={4}
             className="w-[var(--radix-popover-trigger-width)] p-0"
-            onOpenAutoFocus={(e) => {
-              // Suggestions must leave focus in the input while the user types.
-              e.preventDefault()
-            }}
+            // Suggestions must leave focus in the input while the user types.
+            onOpenAutoFocus={(event) => event.preventDefault()}
           >
             <BrowserAddressBarSuggestionList
               suggestions={suggestions}
