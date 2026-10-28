@@ -6,11 +6,17 @@ import {
 } from './use-native-chat-composer-paste'
 import { useNativeChatTypedInsertion } from './use-native-chat-typed-insertion'
 import { useNativeChatAddressPreviews } from './use-native-chat-address-previews'
+import { useNativeChatPastedTextFile } from './use-native-chat-pasted-text-file'
+import type { NativeChatComposerInput } from './native-chat-composer-input'
 
 type UseNativeChatComposerHandleArgs = Parameters<typeof useNativeChatTypedInsertion>[0] &
   Omit<UseNativeChatComposerPasteArgs, 'insertTypedText'> & {
     draft: string
     addressPreviewsEnabled: boolean
+    /** Intake only: captured with the paste action, never consulted during settlement. */
+    pastesInline: () => boolean
+    /** A structured chat's editor while it shows this scope, where a long paste saved as a file lands. */
+    pastedTextEditor: (() => NativeChatComposerInput | null) | null
   }
 
 /** Typed and pasted insertion and its address previews share the composer lifetime. */
@@ -53,9 +59,18 @@ export function useNativeChatComposerHandle(
     },
     [insertPastedText, onTextPasted]
   )
+  const insertPastedTextOrFile = useNativeChatPastedTextFile({
+    pastesInline: args.pastesInline,
+    scopeKey: args.attachmentScopeKey ?? '',
+    // Without a draft scope there is no draft for a pending paste to settle in.
+    scopeEditor: args.attachmentScopeKey ? args.pastedTextEditor : null,
+    resolveAttachmentOwner: args.resolveAttachmentOwner,
+    insertTypedText: insertPreviewableText,
+    setNotice: args.setNotice
+  })
   const { handlePaste: handlePasteEvent, pasteFromClipboard } = useNativeChatComposerPaste({
     ...pasteArgs,
-    insertTypedText: insertPreviewableText
+    insertTypedText: insertPastedTextOrFile
   })
 
   useImperativeHandle(
