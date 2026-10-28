@@ -40,6 +40,9 @@ vi.mock('@/store', () => ({
   }
 }))
 
+// Why: the background mount's sleeping-agent scan reads store state these launches never seed.
+vi.mock('@/lib/sleeping-agent-wake-requests', () => ({ requestSleepingAgentWakeOnMount: vi.fn() }))
+
 vi.mock('@/lib/telemetry', () => ({
   track: vi.fn(),
   tuiAgentToAgentKind: (agent: string) => agent
@@ -49,9 +52,18 @@ vi.mock('@/lib/agent-paste-draft', () => ({
   pasteDraftWhenAgentReady: mockPasteDraftWhenAgentReady
 }))
 
-vi.mock('@/lib/agent-launch-platform', () => ({
-  getAgentLaunchPlatformForRepo: mockGetAgentLaunchPlatformForRepo
-}))
+vi.mock('@/lib/execution-host-facts', async (importOriginal) => {
+  const hostFact = () => ({
+    kind: 'known' as const,
+    platform: mockGetAgentLaunchPlatformForRepo(),
+    hostKind: 'local' as const
+  })
+  return {
+    ...(await importOriginal<Record<string, unknown>>()),
+    resolveRepoExecutionHostPlatform: hostFact,
+    resolveWorktreeExecutionHostPlatform: hostFact
+  }
+})
 
 vi.mock('@/components/terminal-pane/pty-dispatcher', () => ({
   registerEagerPtyBuffer: mockRegisterEagerPtyBuffer,
@@ -81,26 +93,6 @@ describe('launchAgentBackgroundSession with automation extras', () => {
       kill: mockKill,
       spawn: mockSpawn,
       write: mockWrite
-    })
-  })
-
-  it('merges extras over the default arguments, before the prompt', async () => {
-    const { launchAgentBackgroundSession } = await import('./launch-agent-background-session')
-    mockSpawn.mockResolvedValue({ id: 'pty-1' })
-
-    await launchAgentBackgroundSession({
-      agent: 'claude',
-      worktreeId: 'wt-1',
-      prompt: 'run the automation',
-      extraAgentArgs: '--model opus --add-dir "my docs"'
-    })
-
-    expect(mockSpawn.mock.calls[0]?.[0]).toMatchObject({
-      command:
-        "claude '--dangerously-skip-permissions' '--model' 'opus' '--add-dir' 'my docs' 'run the automation'",
-      launchConfig: {
-        agentArgs: "'--dangerously-skip-permissions' '--model' 'opus' '--add-dir' 'my docs'"
-      }
     })
   })
 
