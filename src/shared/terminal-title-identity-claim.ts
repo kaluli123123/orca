@@ -24,16 +24,16 @@ export function titlePresentsAgent(title: string, agent: TuiAgent): boolean {
 
   const displayName = TUI_AGENT_DISPLAY_NAMES[agent]
   const profile = getSyntheticAgentTitleProfile(agent)
-  const identityNames = new Set([
+  const identityNames = [
     displayName,
     `${displayName} CLI`,
     `${displayName} Code`,
     `${displayName} Agent`,
     ...(profile ? [profile.workingLabel, profile.permissionLabel, profile.idleLabel] : [])
-  ])
+  ]
   return getWrapperTitleSegments(title).some((segment) => {
     const normalized = stripLeadingAgentTitleDecorationOrEmpty(segment).trim().toLowerCase()
-    return [...identityNames].some((name) => {
+    return identityNames.some((name) => {
       const identityName = name.toLowerCase()
       const suffix = normalized.slice(identityName.length)
       return (

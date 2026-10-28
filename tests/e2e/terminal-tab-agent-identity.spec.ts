@@ -57,7 +57,9 @@ async function openClaudeTab(
   return { tabId, ptyId }
 }
 
-test('Claude task titles that mention Codex keep the Claude tab icon', async ({ orcaPage }, testInfo) => {
+test('Claude task titles that mention Codex keep the Claude tab icon', async ({
+  orcaPage
+}, testInfo) => {
   await waitForSessionReady(orcaPage)
   const worktreeId = await waitForActiveWorktree(orcaPage)
   await ensureTerminalVisible(orcaPage)
