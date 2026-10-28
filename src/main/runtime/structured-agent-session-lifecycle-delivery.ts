@@ -1,16 +1,8 @@
-// How provider lifecycle events reach the host, and how teardown knows every one has landed.
-//
-// Exit recovery runs on one chain so teardown can drain it: exit callbacks arrive from child
-// process tasks, and a fire-and-forget one could otherwise append after the host flushed and
-// removed its journal directory. That chain orders nothing across sessions, and a recovery on it
-// can run a whole reacquisition, so `started`, a dropped saved option and the end of a close the
-// host asked for stay off it: each takes only its own session's serialized step, and is tracked
-// here so the same drain still waits for it.
+// Track exit recovery through teardown so callbacks cannot write after journal removal.
+// Starts, option drops and requested-close ends use their own session lane to avoid waiting on another session's reacquisition.
 
 import type { StructuredAgentSessionLifecycleEvent } from '../native-chat/agent-session-wire/structured-agent-session-adapter'
 import type { StructuredAgentSessionLogger } from '../native-chat/agent-session-wire/structured-agent-session-logger'
-import type { StructuredAgentSessionHost } from '../native-chat/agent-session-wire/structured-agent-session-host'
-import type { StructuredAttentionMobileDelivery } from './structured-agent-session-mobile-attention'
 
 export function createStructuredAgentSessionLifecycleDelivery(input: {
   handle: (event: StructuredAgentSessionLifecycleEvent) => Promise<void> | undefined
@@ -38,7 +30,7 @@ export function createStructuredAgentSessionLifecycleDelivery(input: {
   return {
     deliver: (event) => {
       if (event.type !== 'ended' || event.cause === 'requested-close') {
-        // Called now, so the step is queued on its own session's lane, behind nothing of another's.
+        // Queue immediately on this session's lane, independent of other sessions.
         const settling = settle(event)
         settlingStarts.add(settling)
         void settling.finally(() => settlingStarts.delete(settling))
@@ -63,26 +55,4 @@ export function createStructuredAgentSessionLifecycleDelivery(input: {
       }
     }
   }
-}
-
-export function installStructuredAgentSessionAttentionDelivery(
-  host: StructuredAgentSessionHost,
-  delivery: StructuredAttentionMobileDelivery | undefined
-): void {
-  if (!delivery) {
-    return
-  }
-  host.subscribeTurnCompletions({
-    id: 'host-attention-delivery',
-    includePrompts: true,
-    emit: (event) => {
-      if (event.type === 'end') {
-        return
-      }
-      const sessionId =
-        event.type === 'prompt' ? event.prompt.sessionId : event.completion.sessionId
-      delivery.deliver(event, host.readStatusSummary(sessionId))
-    },
-    onState: delivery.reconcile
-  })
 }
