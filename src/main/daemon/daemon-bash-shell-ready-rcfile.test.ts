@@ -61,12 +61,14 @@ describe('daemon Bash shell-ready rcfile', () => {
   itWithBash('preserves array PROMPT_COMMAND member execution order', () => {
     const output = runInteractiveBashRcfile(
       `PROMPT_COMMAND=('printf "ARRAY_FIRST\\n"' 'printf "ARRAY_SECOND\\n"')`,
-      '',
+      String.raw`__orca_osc133_epilogue() { printf "EPILOGUE_RAN\n"; }`,
       'exit 0\n'
     )
 
     expect(output.match(/ARRAY_FIRST/g)).toHaveLength(1)
     expect(output.match(/ARRAY_SECOND/g)).toHaveLength(1)
     expect(output.indexOf('ARRAY_FIRST')).toBeLessThan(output.indexOf('ARRAY_SECOND'))
+    expect(output).toContain('EPILOGUE_RAN')
+    expect(output.indexOf('ARRAY_SECOND')).toBeLessThan(output.indexOf('EPILOGUE_RAN'))
   })
 })
