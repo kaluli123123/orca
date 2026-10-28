@@ -22,6 +22,13 @@ describe('detectAgentStatusFromTitle permission matching', () => {
     expect(detectAgentStatusFromTitle('Claude — waiting for input')).toBe('permission')
   })
 
+  it('preserves wrapper-segment and agy ownership when matching permission words', () => {
+    expect(detectAgentStatusFromTitle('tmux | Claude — 2 permissions pending')).toBe('permission')
+    expect(detectAgentStatusFromTitle('agy — permissions audit')).not.toBe('permission')
+    expect(detectAgentStatusFromTitle('Claude ready — waiting/foo')).toBe('idle')
+    expect(detectAgentStatusFromTitle('Claude working — action required\\foo')).toBe('working')
+  })
+
   it('leaves the boundary-aware idle and working matchers alone', () => {
     expect(detectAgentStatusFromTitle('Claude ready — ~/src/auth')).toBe('idle')
     expect(detectAgentStatusFromTitle('Claude — reworking the parser')).toBe('idle')

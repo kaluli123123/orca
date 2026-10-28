@@ -1,3 +1,4 @@
+import { ImeInput } from '@/lib/ime-text-field'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { ChevronUp, ChevronDown, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
@@ -8,12 +9,15 @@ type BrowserFindProps = {
   isOpen: boolean
   onClose: () => void
   webviewRef: React.RefObject<Electron.WebviewTag | null>
+  /** Bumped whenever the pane swaps in a new guest under the same mount; rebinds the listener. */
+  guestGeneration?: number | null
 }
 
 export default function BrowserFind({
   isOpen,
   onClose,
-  webviewRef
+  webviewRef,
+  guestGeneration = null
 }: BrowserFindProps): React.JSX.Element | null {
   const inputRef = useRef<HTMLInputElement>(null)
   const wasOpenRef = useRef(isOpen)
@@ -32,8 +36,7 @@ export default function BrowserFind({
       try {
         webview.findInPage(text, opts)
       } catch {
-        // Why: the webview can be mid-teardown during tab close or navigation
-        // races. Best-effort is better than crashing.
+        // Ignore guest teardown races during navigation or tab close.
       }
     },
     [webviewRef]
@@ -51,8 +54,7 @@ export default function BrowserFind({
     }
   }, [webviewRef])
 
-  // Why: Electron's findNext means "start a NEW session" — follow-up requests that
-  // advance the selection must pass false, or every Enter restarts at the first match.
+  // Electron findNext:true starts a new session; advancing the current selection requires false.
   const findNext = useCallback(() => {
     if (requestQuery) {
       const findNext = activeFindQueryRef.current !== requestQuery
@@ -103,18 +105,12 @@ export default function BrowserFind({
       runFind()
       return
     }
-    // Why: findInPage re-highlights the active match on every call, which can
-    // flash while typing. Debounce typing changes, while reopen and Enter
-    // navigation still use the live query immediately.
+    // Debounce typing to avoid highlight flashes; reopening and Enter still use the live query.
     const id = window.setTimeout(runFind, 200)
     return () => window.clearTimeout(id)
   }, [isOpen, requestQuery, safeFindInPage, safeStopFindInPage])
 
-  // Why: this effect captures `webviewRef.current` into a local variable, so
-  // if the webview element were replaced while `isOpen` stays true the listener
-  // would be on a stale node. This is safe because BrowserPane closes the find
-  // bar (`setFindOpen(false)`) on every full navigation (`did-navigate`) and on
-  // tab deactivation, which toggles `isOpen` and re-runs this effect.
+  // Rebind on generation changes: client-hosted restart swaps the guest without remounting or closing Find.
   useEffect(() => {
     const webview = webviewRef.current
     if (!webview || !isOpen) {
@@ -133,7 +129,7 @@ export default function BrowserFind({
         // Why: webview may be destroyed during cleanup.
       }
     }
-  }, [webviewRef, isOpen])
+  }, [webviewRef, isOpen, guestGeneration])
 
   if ((!isOpen || !requestQuery) && (activeMatch !== 0 || totalMatches !== 0)) {
     setActiveMatch(0)
@@ -165,7 +161,7 @@ export default function BrowserFind({
       style={{ width: 300 }}
       onKeyDown={handleKeyDown}
     >
-      <input
+      <ImeInput
         ref={inputRef}
         type="text"
         value={query}
