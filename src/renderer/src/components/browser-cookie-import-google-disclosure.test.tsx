@@ -121,15 +121,13 @@ describe('cookie-import Google disclosure footer', () => {
     act(() =>
       root.render(
         <BrowserProfileRow
-          profile={
-            {
-              id: 'default',
-              label: 'Default',
-              partition: 'persist:default',
-              scope: 'default',
-              source: null
-            } as never
-          }
+          profile={{
+            id: 'default',
+            label: 'Default',
+            partition: 'persist:default',
+            scope: 'default',
+            source: null
+          }}
           detectedBrowsers={DETECTED_BROWSERS}
           importState={null}
           isActive
@@ -139,9 +137,11 @@ describe('cookie-import Google disclosure footer', () => {
       )
     )
 
-    const clearButton = container.querySelector('[data-testid="clear-default-cookies-button"]')
+    const clearButton = container.querySelector<HTMLButtonElement>(
+      '[data-testid="clear-default-cookies-button"]'
+    )
     expect(clearButton).not.toBeNull()
-    expect((clearButton as HTMLButtonElement | null)?.disabled).toBe(false)
+    expect(clearButton?.disabled).toBe(false)
     expect(clearButton?.getAttribute('aria-label')).toBe('Clear default cookies')
   })
 })
