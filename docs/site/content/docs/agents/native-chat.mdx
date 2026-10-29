@@ -54,6 +54,8 @@ You can also switch the same terminal-backed session with **Switch between Chat 
 
 On desktop, paste an absolute local file path, a `file://` URL, or a direct HTTP(S) file URL into the composer to create a preview. Both keyboard paste and the composer’s Paste menu work. The pasted text stays in the message: previewing does not send the message, upload the file, or attach it to an agent request.
 
+Slash commands such as `/compact focus on src/main` do not create file previews. Quote a Unix path whose first directory name contains spaces (for example, `"/Voice Notes/one.wav"`) so it is not mistaken for a command.
+
 - **Images:** supported formats show a thumbnail that opens a larger in-app view. HEIC and AVIF show metadata cards instead of thumbnails.
 - **Audio and video:** inline playback controls, pause and seek; no autoplay. Playback depends on the desktop runtime’s supported codecs and the server’s byte-range support.
 - **Documents:** open UTF-8 text, Markdown or PDF in an in-app view. Markdown does not automatically load embedded images or other external resources. Other files show their name, type and size when available.

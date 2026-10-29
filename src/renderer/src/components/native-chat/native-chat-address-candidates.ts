@@ -55,8 +55,12 @@ function addressCandidates(text: string, limit: number): string[] {
       add(value)
       continue
     }
-    // A path copied by an OS file manager can contain unquoted spaces.
-    if (LOCAL_PATH.test(value) && !SCHEME.test(value)) {
+    // Distinguish unquoted paths with spaces from slash commands followed by arguments.
+    if (
+      LOCAL_PATH.test(value) &&
+      !SCHEME.test(value) &&
+      (!/\s/.test(value) || /^(?:[a-z]:[\\/]|\/[^\s/]+\/)/i.test(value))
+    ) {
       add(value)
       continue
     }

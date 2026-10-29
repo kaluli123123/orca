@@ -6,6 +6,8 @@ describe('pasted address recognition', () => {
     expect(pastedAddressCandidates('/Users/person/Voice Notes/session 1.m4a')).toEqual([
       '/Users/person/Voice Notes/session 1.m4a'
     ])
+    expect(pastedAddressCandidates('C:\\Voice Notes\\one.wav')).toEqual(['C:\\Voice Notes\\one.wav'])
+    expect(pastedAddressCandidates('"/Voice Notes/one.wav"')).toEqual(['/Voice Notes/one.wav'])
     expect(
       pastedAddressCandidates('Compare "C:\\Voice Notes\\one.wav" with "/tmp/second note.txt"')
     ).toEqual(['C:\\Voice Notes\\one.wav', '/tmp/second note.txt'])
@@ -30,6 +32,14 @@ describe('pasted address recognition', () => {
       )
     ).toEqual([])
   })
+
+  it.each(['/compact focus on src/main', '/review fix.'])(
+    'does not preview a multi-word slash command: %s',
+    (command) => {
+      expect(pastedAddressCandidates(command)).toEqual([])
+      expect(draftContainsAddress(command, command)).toBe(false)
+    }
+  )
 
   it('keeps file URLs encoded for the main-process decoder and deduplicates repeated links', () => {
     expect(
