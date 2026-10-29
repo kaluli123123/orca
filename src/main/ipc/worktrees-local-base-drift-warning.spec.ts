@@ -12,6 +12,7 @@ export function registerLocalBaseDriftWarningTest(runtime: () => WorktreeRuntime
   it('reports stale local base drift through the desktop create path', async () => {
     store.getRepo.mockReturnValue({ ...harnessRepo, worktreeBaseRef: 'develop' })
     runtime().resolveRemoteTrackingBase.mockResolvedValue(null)
+    addWorktreeMock.mockResolvedValueOnce({ upstreamWarning: 'Upstream setup unavailable' })
     listWorktreesMock.mockResolvedValue([
       {
         path: '/workspace/local-stale-base',
@@ -56,5 +57,6 @@ export function registerLocalBaseDriftWarningTest(runtime: () => WorktreeRuntime
       },
       warning: expect.stringContaining('develop is 692 commit(s) behind origin/main')
     })
+    expect(result).toMatchObject({ warning: expect.stringContaining('Upstream setup unavailable') })
   })
 }
