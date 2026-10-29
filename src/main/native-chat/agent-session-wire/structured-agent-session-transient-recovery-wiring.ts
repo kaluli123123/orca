@@ -1,5 +1,8 @@
 import type { AgentJournalMessageItem } from '../../../shared/agent-session-journal-types'
 import { computeAgentSessionPayloadFingerprint } from '../../../shared/agent-session-mutation-envelope'
+import { agentJournalSubmissionKey } from '../../../shared/agent-session-journal-item-key'
+import { readAgentJournalTurn } from '../../../shared/agent-session-turn-record'
+import { structuredAgentTurnAnchors } from '../../../shared/native-chat-turn-membership'
 import {
   latestStructuredAgentSessionRequest,
   latestStructuredAgentSessionUserItem
@@ -55,9 +58,18 @@ export function wireTransientRecovery(
     },
     send: async (sessionId, operationId, beforeRun) => {
       const record = host.deps.store.getRecord(sessionId)
-      if (!record) {
+      const session = sessions.get(sessionId)
+      if (!record || !session) {
         return false
       }
+      const { items } = session.journal.snapshot()
+      const submissions = session.journal.submissions()
+      const request = latestStructuredAgentSessionRequest(items, submissions)
+      const turn = items.find((item) => readAgentJournalTurn(item.body)?.turnId === request?.id)
+      const opener = turn && structuredAgentTurnAnchors(items, submissions).get(turn.itemId)
+      const options = submissions.find(
+        (submission) => agentJournalSubmissionKey(submission.clientMessageId) === opener
+      )?.options
       const body: AgentJournalMessageItem = {
         kind: 'message',
         role: 'user',
@@ -67,6 +79,7 @@ export function wireTransientRecovery(
         { callerKey: TRANSIENT_RECOVERY_CALLER },
         {
           body,
+          options,
           beforeRun,
           envelope: {
             sessionId,
@@ -75,7 +88,7 @@ export function wireTransientRecovery(
             payloadFingerprint: computeAgentSessionPayloadFingerprint({
               method: 'agentSession.send',
               sessionId,
-              fields: { body }
+              fields: { body, options }
             })
           }
         }

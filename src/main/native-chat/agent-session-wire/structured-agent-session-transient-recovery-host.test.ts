@@ -78,6 +78,33 @@ it.each([
   }
 )
 
+it('continues with the failed send options instead of the saved session model', async () => {
+  await attach()
+  const { host, store, dispatch } = hostTestState()
+  host.deps.transientRecovery = { enabled: () => true }
+  const saved = { key: 'model', value: 'saved-model' }
+  await host.setOption(CALLER, {
+    ...saved,
+    envelope: envelope('agentSession.setOption', saved)
+  })
+  const body = hostTestMessage('Use the model selected for this message')
+  const options = { model: 'pending-model', effort: 'high' }
+  const sent = await host.send(CALLER, {
+    body,
+    options,
+    envelope: envelope('agentSession.send', { body, options })
+  })
+  expect(sent.ok).toBe(true)
+  await vi.waitFor(() => expect(dispatch).toHaveBeenCalledOnce())
+  expect(store.getRecord(SESSION)?.options?.model).not.toBe(options.model)
+  vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+  await failTurn()
+  await vi.advanceTimersByTimeAsync(10_000)
+  await vi.waitFor(() => expect(dispatch).toHaveBeenCalledTimes(2))
+  expect(dispatch.mock.calls[1]![0].executionOptions).toEqual(options)
+  expect((await host.journalSnapshot(SESSION)).submissions.at(-1)?.options).toEqual(options)
+})
+
 it.each(['disabled', 'manual-send', 'stop', 'close', 'quota', 'dispatch-owned', 'option', 'goal'])(
   'does not auto-send after %s',
   async (action) => {
