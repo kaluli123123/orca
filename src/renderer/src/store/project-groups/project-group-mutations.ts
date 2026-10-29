@@ -217,12 +217,7 @@ export function createProjectGroupMutationActions(
       }
       for (const projectId of new Set(targets.projectIds)) {
         const members = membersById.get(projectId) ?? []
-        // Why: an unstamped group already routes to the focused host, so only that host's member is removed.
-        const focusedMember = ownerHostId
-          ? null
-          : findRepoForHost(members, projectId, { settings: get().settings })
-        const removable = ownerHostId ? members : focusedMember ? [focusedMember] : []
-        const removableHostIds = removable.map((row) => getRepoExecutionHostId(row))
+        const removableHostIds = members.map((row) => getRepoExecutionHostId(row))
         for (const hostId of removableHostIds) {
           try {
             await get().removeProject(projectId, {
@@ -233,12 +228,9 @@ export function createProjectGroupMutationActions(
             console.error('Failed to remove contained project:', err)
           }
         }
-        // Why: an ambiguous unstamped member with no focused-host row was left in place, so it counts as remaining.
-        const stillExists =
-          (members.length > 0 && removableHostIds.length === 0) ||
-          removableHostIds.some((hostId) =>
-            get().repos.some((repo) => repoMatchesHostIdentity(repo, projectId, hostId))
-          )
+        const stillExists = removableHostIds.some((hostId) =>
+          get().repos.some((repo) => repoMatchesHostIdentity(repo, projectId, hostId))
+        )
         if (stillExists) {
           failedProjectRemovals.push({
             projectId,
