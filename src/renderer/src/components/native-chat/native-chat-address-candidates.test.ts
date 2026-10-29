@@ -6,7 +6,9 @@ describe('pasted address recognition', () => {
     expect(pastedAddressCandidates('/Users/person/Voice Notes/session 1.m4a')).toEqual([
       '/Users/person/Voice Notes/session 1.m4a'
     ])
-    expect(pastedAddressCandidates('C:\\Voice Notes\\one.wav')).toEqual(['C:\\Voice Notes\\one.wav'])
+    expect(pastedAddressCandidates('C:\\Voice Notes\\one.wav')).toEqual([
+      'C:\\Voice Notes\\one.wav'
+    ])
     expect(pastedAddressCandidates('"/Voice Notes/one.wav"')).toEqual(['/Voice Notes/one.wav'])
     expect(
       pastedAddressCandidates('Compare "C:\\Voice Notes\\one.wav" with "/tmp/second note.txt"')
