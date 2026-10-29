@@ -117,7 +117,6 @@ it.each([false, true])(
         beginPendingImageAttachment: () => null,
         resolvePendingImageAttachment: () => {},
         dropPendingImageAttachment: () => {},
-        pastesInline: () => false,
         pastedTextEditor: () => input,
         setNotice: () => {}
       })
