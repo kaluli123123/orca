@@ -144,11 +144,11 @@ export async function resolvePreviewLocalSymlinks(
   throw new Error('Preview path contains too many symbolic links')
 }
 
-export async function resolvePreviewAddress(
+export async function resolvePreviewAddresses(
   url: URL,
   allowPrivateNetwork: boolean,
   signal: AbortSignal
-): Promise<{ address: string; family: number }> {
+): Promise<{ address: string; family: number }[]> {
   signal.throwIfAborted()
   const hostname = url.hostname.replace(/^\[|\]$/g, '')
   const family = isIP(hostname)
@@ -180,5 +180,5 @@ export async function resolvePreviewAddress(
   if (!allowPrivateNetwork && addresses.some((entry) => !isPublicPreviewAddress(entry.address))) {
     throw new PrivatePreviewAddressError()
   }
-  return addresses[0]
+  return addresses
 }

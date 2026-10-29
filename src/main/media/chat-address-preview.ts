@@ -36,12 +36,12 @@ import {
   previewContentLimit,
   type PreviewContentType
 } from './chat-address-preview-content'
+import { openPreviewNetworkResponse } from './chat-address-preview-network'
 import {
   CHAT_PREVIEW_MAX_MEDIA_BYTES,
-  openPreviewNetworkResponse,
   previewResponseSize,
   readPreviewNetworkBytes
-} from './chat-address-preview-network'
+} from './chat-address-preview-network-body'
 
 type ReadyPreview = Extract<ChatAddressPreviewResult, { status: 'ready' }>
 

@@ -6,7 +6,7 @@ import {
   isValidPreviewId,
   parsePreviewLocalPath,
   parsePreviewNetworkUrl,
-  resolvePreviewAddress
+  resolvePreviewAddresses
 } from './chat-address-preview-security'
 
 vi.mock('node:dns/promises', () => ({ lookup }))
@@ -52,19 +52,21 @@ describe('chat preview address security', () => {
     ])
     const url = new URL('https://files.example/data')
     await expect(
-      resolvePreviewAddress(url, false, new AbortController().signal)
+      resolvePreviewAddresses(url, false, new AbortController().signal)
     ).rejects.toBeInstanceOf(PrivatePreviewAddressError)
-    await expect(resolvePreviewAddress(url, true, new AbortController().signal)).resolves.toEqual({
-      address: '1.1.1.1',
-      family: 4
-    })
+    await expect(resolvePreviewAddresses(url, true, new AbortController().signal)).resolves.toEqual(
+      [
+        { address: '1.1.1.1', family: 4 },
+        { address: '127.0.0.1', family: 4 }
+      ]
+    )
     expect(lookup).toHaveBeenCalledWith('files.example', { all: true, verbatim: true })
   })
 
   it('cancels a pending DNS lookup instead of opening a late answer', async () => {
     vi.mocked(lookup).mockImplementation(() => new Promise(() => {}))
     const controller = new AbortController()
-    const pending = resolvePreviewAddress(
+    const pending = resolvePreviewAddresses(
       new URL('https://files.example'),
       false,
       controller.signal

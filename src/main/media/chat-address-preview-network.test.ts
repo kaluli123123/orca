@@ -8,12 +8,14 @@ import type { IncomingMessage, RequestOptions } from 'node:http'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   openPreviewNetworkResponse,
-  readPreviewNetworkBytes,
   CHAT_PREVIEW_MAX_NETWORK_REQUESTS,
-  CHAT_PREVIEW_MEDIA_TIMEOUT_MS,
-  CHAT_PREVIEW_NETWORK_TIMEOUT_MS,
-  streamPreviewNetworkResponse
+  CHAT_PREVIEW_NETWORK_TIMEOUT_MS
 } from './chat-address-preview-network'
+import {
+  readPreviewNetworkBytes,
+  CHAT_PREVIEW_MEDIA_TIMEOUT_MS,
+  streamPreviewNetworkResponse
+} from './chat-address-preview-network-body'
 
 vi.mock('node:dns/promises', () => ({ lookup }))
 vi.mock('node:http', () => ({ request }))
@@ -47,6 +49,24 @@ function respond(statusCode: number, headers: IncomingMessage['headers'], chunks
   })
   return response
 }
+
+function failRequest(code: string, onFailure?: () => void): void {
+  request.mockImplementationOnce(() => {
+    const outgoing = Object.assign(new EventEmitter(), {
+      end: () => {
+        onFailure?.()
+        outgoing.emit('error', Object.assign(new Error('Preview connection failed'), { code }))
+      },
+      destroy: vi.fn()
+    })
+    return outgoing
+  })
+}
+
+const publicAddresses = [
+  { address: '2606:4700:4700::1111', family: 6 },
+  { address: '1.1.1.1', family: 4 }
+]
 
 beforeEach(() => {
   vi.clearAllMocks()
@@ -116,6 +136,111 @@ describe('chat preview pinned HTTP transport', () => {
     expect(await readPreviewNetworkBytes(result, 10)).toEqual(Buffer.from('hello'))
   })
 
+  it('tries the next validated address when the first network route is unavailable', async () => {
+    lookup.mockResolvedValueOnce(publicAddresses)
+    failRequest('ENETUNREACH')
+    respond(200, { 'content-type': 'text/plain' }, [Buffer.from('reachable')])
+    const config = options()
+    const result = await openPreviewNetworkResponse(
+      new URL('http://files.example/no-extension'),
+      config
+    )
+    expect(request.mock.calls.map(([requestOptions]) => requestOptions.hostname)).toEqual(
+      publicAddresses.map(({ address }) => address)
+    )
+    expect(request.mock.calls.map(([requestOptions]) => requestOptions.family)).toEqual([6, 4])
+    for (const [requestOptions] of request.mock.calls) {
+      expect(requestOptions).toMatchObject({
+        servername: 'files.example',
+        headers: { Host: 'files.example' },
+        agent: false
+      })
+    }
+    expect(lookup).toHaveBeenCalledOnce()
+    expect(config.budget.requests).toBe(2)
+    expect(await readPreviewNetworkBytes(result, 16)).toEqual(Buffer.from('reachable'))
+  })
+
+  it('tries the next checked address after a connection header deadline', async () => {
+    vi.useFakeTimers()
+    lookup.mockResolvedValueOnce(publicAddresses)
+    request.mockImplementationOnce(() => {
+      const outgoing = Object.assign(new EventEmitter(), {
+        end: vi.fn(),
+        destroy: (error: Error) => outgoing.emit('error', error)
+      })
+      return outgoing
+    })
+    respond(200, {}, [Buffer.from('reachable')])
+    const pending = openPreviewNetworkResponse(new URL('http://files.example/file'), options())
+    await vi.advanceTimersByTimeAsync(CHAT_PREVIEW_NETWORK_TIMEOUT_MS)
+    const result = await pending
+    expect(request).toHaveBeenCalledTimes(2)
+    expect(lookup).toHaveBeenCalledOnce()
+    expect(await readPreviewNetworkBytes(result, 16)).toEqual(Buffer.from('reachable'))
+  })
+
+  it('validates every DNS answer before any connection or fallback', async () => {
+    lookup.mockResolvedValueOnce([...publicAddresses, { address: '127.0.0.1', family: 4 }])
+    await expect(
+      openPreviewNetworkResponse(new URL('http://files.example/file'), options())
+    ).rejects.toThrow('permission')
+    expect(request).not.toHaveBeenCalled()
+  })
+
+  it('rechecks proxy policy before trying the next checked address', async () => {
+    lookup.mockResolvedValueOnce(publicAddresses)
+    failRequest('ENETUNREACH', () => proxy.resolve.mockResolvedValue('PROXY proxy.example:8080'))
+    await expect(
+      openPreviewNetworkResponse(new URL('http://files.example/file'), options())
+    ).rejects.toThrow('proxy')
+    expect(request).toHaveBeenCalledOnce()
+    expect(lookup).toHaveBeenCalledOnce()
+  })
+
+  it('does not try another checked address after cancellation', async () => {
+    lookup.mockResolvedValueOnce(publicAddresses)
+    const controller = new AbortController()
+    failRequest('ENETUNREACH', () => controller.abort(new Error('removed')))
+    await expect(
+      openPreviewNetworkResponse(new URL('http://files.example/file'), {
+        ...options(),
+        signal: controller.signal
+      })
+    ).rejects.toThrow('removed')
+    expect(request).toHaveBeenCalledOnce()
+  })
+
+  it('counts fallback sockets against the existing request budget', async () => {
+    lookup.mockResolvedValueOnce(publicAddresses)
+    failRequest('ENETUNREACH')
+    const config = { ...options(), budget: { requests: CHAT_PREVIEW_MAX_NETWORK_REQUESTS - 1 } }
+    await expect(
+      openPreviewNetworkResponse(new URL('http://files.example/file'), config)
+    ).rejects.toThrow('request limit')
+    expect(config.budget.requests).toBe(CHAT_PREVIEW_MAX_NETWORK_REQUESTS)
+    expect(request).toHaveBeenCalledOnce()
+  })
+
+  it('does not treat certificate failures as an unavailable network route', async () => {
+    lookup.mockResolvedValueOnce(publicAddresses)
+    failRequest('CERT_HAS_EXPIRED')
+    await expect(
+      openPreviewNetworkResponse(new URL('http://files.example/file'), options())
+    ).rejects.toThrow('connection failed')
+    expect(request).toHaveBeenCalledOnce()
+  })
+
+  it('does not retry a rejected HTTP response against another checked address', async () => {
+    lookup.mockResolvedValueOnce(publicAddresses)
+    const incoming = respond(503, {})
+    await expect(
+      openPreviewNetworkResponse(new URL('http://files.example/file'), options())
+    ).rejects.toThrow('HTTP 503')
+    expect(request).toHaveBeenCalledOnce()
+    expect(incoming.destroyed).toBe(true)
+  })
+
   it('blocks a public redirect to private IP before the second socket opens', async () => {
     respond(302, { location: 'http://127.0.0.1/admin' })
     await expect(
@@ -138,17 +263,23 @@ describe('chat preview pinned HTTP transport', () => {
     }
   )
 
-  it('revalidates DNS on every redirect rather than reusing the public result', async () => {
-    vi.mocked(lookup)
-      .mockResolvedValueOnce([{ address: '1.1.1.1', family: 4 }])
-      .mockResolvedValueOnce([{ address: '10.0.0.1', family: 4 }])
-    respond(302, { location: '/rebound' })
-    await expect(
-      openPreviewNetworkResponse(new URL('http://files.example/file'), options())
-    ).rejects.toThrow('permission')
-    expect(request).toHaveBeenCalledTimes(1)
-    expect(lookup).toHaveBeenCalledTimes(2)
-  })
+  it.each([false, true])(
+    'revalidates DNS on every redirect rather than reusing the public result (fallback=%s)',
+    async (fallback) => {
+      vi.mocked(lookup)
+        .mockResolvedValueOnce(fallback ? publicAddresses : [{ address: '1.1.1.1', family: 4 }])
+        .mockResolvedValueOnce([{ address: '10.0.0.1', family: 4 }])
+      if (fallback) {
+        failRequest('ENETUNREACH')
+      }
+      respond(302, { location: '/rebound' })
+      await expect(
+        openPreviewNetworkResponse(new URL('http://files.example/file'), options())
+      ).rejects.toThrow('permission')
+      expect(request).toHaveBeenCalledTimes(fallback ? 2 : 1)
+      expect(lookup).toHaveBeenCalledTimes(2)
+    }
+  )
 
   it('bounds an ignored Range prefix and destroys the unread response', async () => {
     const incoming = respond(200, {}, [Buffer.alloc(8192, 65), Buffer.alloc(8192, 66)])
@@ -161,10 +292,12 @@ describe('chat preview pinned HTTP transport', () => {
   })
 
   it('refuses an oversized body even when the server omits Content-Length', async () => {
+    lookup.mockResolvedValueOnce(publicAddresses)
     const incoming = respond(200, {}, [Buffer.alloc(65)])
     const result = await openPreviewNetworkResponse(new URL('http://files.example/file'), options())
     await expect(readPreviewNetworkBytes(result, 64)).rejects.toThrow('size limit')
     expect(incoming.destroyed).toBe(true)
+    expect(request).toHaveBeenCalledOnce()
   })
 
   it('caps both redirects and the lifetime request count', async () => {

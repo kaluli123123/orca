@@ -44,6 +44,18 @@ describe('pasted address recognition', () => {
 })
 
 describe('draft address membership', () => {
+  it.each(['/tmp/clip.wav', 'C:\\Voice Notes\\clip.wav'])(
+    'retires a local preview when whitespace edits extend %s',
+    (source) => {
+      expect(draftContainsAddress(`${source} backup.wav`, source)).toBe(false)
+      expect(draftContainsAddress(`Listen: "${source} backup.wav"`, source)).toBe(false)
+      expect(draftContainsAddress(source, source)).toBe(true)
+      expect(draftContainsAddress(`Listen: "${source}"`, source)).toBe(true)
+      const earlierLinks = Array.from({ length: 8 }, (_, index) => `https://example.com/${index}`)
+      expect(draftContainsAddress([...earlierLinks, source].join('\n'), source)).toBe(true)
+    }
+  )
+
   it('removes a stale resource when its address changes rather than matching a substring', () => {
     const source = 'https://example.com/clip.mp4'
     expect(draftContainsAddress(`${source}?revision=2`, source)).toBe(false)

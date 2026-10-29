@@ -35,16 +35,15 @@ function isAddress(source: string): boolean {
   return LOCAL_PATH.test(source) && /[\\/.]/.test(source.slice(1))
 }
 
-/** Only called for user-pasted text, never for agent output or restored drafts. */
-export function pastedAddressCandidates(text: string): string[] {
+function addressCandidates(text: string, limit: number): string[] {
   const sources = new Set<string>()
   const add = (source: string): void => {
-    if (sources.size < CHAT_ADDRESS_PREVIEW_LIMIT && isAddress(source)) {
+    if (sources.size < limit && isAddress(source)) {
       sources.add(source)
     }
   }
   for (const line of text.split(/\r?\n/)) {
-    if (sources.size === CHAT_ADDRESS_PREVIEW_LIMIT) {
+    if (sources.size === limit) {
       break
     }
     const value = line.trim()
@@ -79,8 +78,16 @@ export function pastedAddressCandidates(text: string): string[] {
   return [...sources]
 }
 
+/** Only called for user-pasted text, never for agent output or restored drafts. */
+export function pastedAddressCandidates(text: string): string[] {
+  return addressCandidates(text, CHAT_ADDRESS_PREVIEW_LIMIT)
+}
+
 /** A longer edited URL/path must not keep the old resource alive by substring match. */
 export function draftContainsAddress(draft: string, source: string): boolean {
+  if (LOCAL_PATH.test(source)) {
+    return addressCandidates(draft, Infinity).includes(source)
+  }
   let offset = 0
   while (offset <= draft.length - source.length) {
     const index = draft.indexOf(source, offset)

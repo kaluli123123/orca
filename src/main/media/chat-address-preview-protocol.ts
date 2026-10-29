@@ -1,11 +1,11 @@
 import { protocol } from 'electron'
 import { createMediaRangeResponse } from './media-range-response'
 import { CHAT_ADDRESS_PREVIEW_SCHEME, getChatPreviewGrant } from './chat-address-preview-grants'
+import { openPreviewNetworkResponse } from './chat-address-preview-network'
 import {
-  openPreviewNetworkResponse,
   streamPreviewNetworkResponse,
   CHAT_PREVIEW_MAX_MEDIA_BYTES
-} from './chat-address-preview-network'
+} from './chat-address-preview-network-body'
 
 export const CHAT_PREVIEW_PROTOCOL: Electron.CustomScheme = {
   scheme: CHAT_ADDRESS_PREVIEW_SCHEME,
