@@ -28,6 +28,9 @@ export type TransientRecoveryPolicy = {
 
 type RecoveryDeps = TransientRecoveryPolicy & {
   now?: () => number
+  onCompleted?: (
+    listener: (sessionId: string, turnId: string, outcome: string) => void
+  ) => () => void
   snapshot: (sessionId: string) => TransientRecoverySnapshot | null
   /** beforeRun is checked inside the session's existing serial acceptance lock. */
   send: (sessionId: string, operationId: string, beforeRun: () => void) => Promise<boolean>
@@ -39,9 +42,11 @@ export class StructuredAgentSessionTransientRecovery {
   private readonly recoveries = new Map<string, Recovery>()
   private disposed = false
   private readonly stopWatching?: () => void
+  private readonly stopCompletions?: () => void
 
   constructor(private readonly deps: RecoveryDeps) {
     this.stopWatching = deps.onDisabled?.(() => this.cancelAll())
+    this.stopCompletions = deps.onCompleted?.((...args) => this.completed(...args))
   }
 
   completed(sessionId: string, turnId: string, outcome: string): void {
@@ -94,8 +99,12 @@ export class StructuredAgentSessionTransientRecovery {
   }
 
   dispose(): void {
+    if (this.disposed) {
+      return
+    }
     this.disposed = true
     this.stopWatching?.()
+    this.stopCompletions?.()
     this.cancelAll()
   }
 

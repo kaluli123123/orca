@@ -12,9 +12,33 @@ import {
   HOST_TEST_NOW as NOW,
   hostTestMessage
 } from './structured-agent-session-host-test-data'
-import { TRANSIENT_RECOVERY_MESSAGE } from './structured-agent-session-transient-recovery-wiring'
+import {
+  TRANSIENT_RECOVERY_MESSAGE,
+  wireTransientRecovery
+} from './structured-agent-session-transient-recovery-wiring'
 
 afterEach(() => vi.useRealTimers())
+
+it('unsubscribes its completion listener exactly once on disposal', () => {
+  const { host } = hostTestState()
+  const subscribe = host.subscribeTurnCompletions.bind(host)
+  const stopped = vi.fn()
+  const spy = vi.spyOn(host, 'subscribeTurnCompletions').mockImplementation((subscriber) => {
+    const unsubscribe = subscribe(subscriber)
+    return () => {
+      unsubscribe()
+      stopped()
+    }
+  })
+  try {
+    const recovery = wireTransientRecovery(host, host.collaboratorsForTests().sessions)
+    recovery.dispose()
+    recovery.dispose()
+    expect(stopped).toHaveBeenCalledOnce()
+  } finally {
+    spy.mockRestore()
+  }
+})
 
 async function failTurn(error = 'serverOverloaded', message = 'Provider unavailable') {
   const { host, store } = hostTestState()

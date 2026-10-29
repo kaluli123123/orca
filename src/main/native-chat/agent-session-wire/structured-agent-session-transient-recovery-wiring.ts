@@ -27,10 +27,20 @@ export function wireTransientRecovery(
   host: StructuredAgentSessionHost,
   sessions: ReadonlyMap<string, StructuredAgentSessionHostSession>
 ): StructuredAgentSessionTransientRecovery {
-  const recovery = new StructuredAgentSessionTransientRecovery({
+  return new StructuredAgentSessionTransientRecovery({
     now: host.deps.now,
     enabled: () => host.deps.transientRecovery?.enabled() === true,
     onDisabled: host.deps.transientRecovery?.onDisabled,
+    onCompleted: (completed) =>
+      host.subscribeTurnCompletions({
+        id: 'host-transient-error-recovery',
+        emit: (event) => {
+          if (event.type === 'completion' && !event.completion.awaitingUser) {
+            const { sessionId, turnId, outcome } = event.completion
+            completed(sessionId, turnId, outcome)
+          }
+        }
+      }),
     snapshot: (sessionId) => {
       const session = sessions.get(sessionId)
       const record = host.deps.store.getRecord(sessionId)
@@ -97,16 +107,6 @@ export function wireTransientRecovery(
     },
     logger: host.deps.logger
   })
-  host.subscribeTurnCompletions({
-    id: 'host-transient-error-recovery',
-    emit: (event) => {
-      if (event.type === 'completion' && !event.completion.awaitingUser) {
-        const { sessionId, turnId, outcome } = event.completion
-        recovery.completed(sessionId, turnId, outcome)
-      }
-    }
-  })
-  return recovery
 }
 
 /** Cancel pending continuation synchronously before admitting any newer user mutation. */
