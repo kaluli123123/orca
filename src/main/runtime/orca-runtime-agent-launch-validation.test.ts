@@ -4,6 +4,7 @@ import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { OrcaRuntimeService } from './orca-runtime'
 import type * as LocalAgentCliPresence from '../agent-hooks/local-agent-cli-presence'
+import { resolveStructuredAgentCommand } from '../native-chat/structured-agent-command-resolution'
 
 const {
   detectInstalledAgents,
@@ -30,6 +31,10 @@ vi.mock('../agent-hooks/local-agent-cli-presence', () => ({ detectLocalManagedAg
 vi.mock('../project-runtime-git-options', () => ({ resolveLocalProjectRuntimeForRepo }))
 vi.mock('../ipc/command-path-resolver', () => ({ isCommandOnLocalPath }))
 vi.mock('./agent-launch-scope-runtime', () => ({ agentLaunchPlatformForScope }))
+
+const actualLocalAgentCliPresence = await vi.importActual<typeof LocalAgentCliPresence>(
+  '../agent-hooks/local-agent-cli-presence'
+)
 
 const repo = (connectionId?: string) => ({
   id: 'repo-1',
@@ -155,17 +160,59 @@ describe('validateOrchestrationAgentLauncherForRepo', () => {
         agentDefaultEnv: { codex: { PATH: root } }
       })
       detectInstalledAgents.mockResolvedValue(['codex'])
-      const actual = await vi.importActual<typeof LocalAgentCliPresence>(
-        '../agent-hooks/local-agent-cli-presence'
-      )
       detectLocalManagedAgentCliPresence.mockImplementation(
-        actual.detectLocalManagedAgentCliPresence
+        actualLocalAgentCliPresence.detectLocalManagedAgentCliPresence
       )
 
       const validation = runtime.validateOrchestrationAgentLauncherForRepo('codex', 'repo-1')
       await (overrideFound
         ? expect(validation).resolves.toBeUndefined()
         : expect(validation).rejects.toMatchObject({ code: 'agent_not_available' }))
+    }
+  )
+
+  it.each(['wrapper --flag', 'npx codex', '"unfinished'])(
+    'rejects the same invalid structured Command as the launcher: %s',
+    async (command) => {
+      const settings = { agentCmdOverrides: { codex: command } }
+      const runtime = createRuntime(settings)
+      detectInstalledAgents.mockResolvedValue(['codex'])
+      detectLocalManagedAgentCliPresence.mockResolvedValue({
+        codex: { state: 'found', executablePath: '/managed/wrapper' }
+      })
+      expect(() => resolveStructuredAgentCommand('codex', settings)).toThrow(
+        expect.objectContaining({ reason: 'agentCommandNotRunnable' })
+      )
+      await expect(
+        runtime.validateOrchestrationAgentLauncherForRepo('codex', 'repo-1', 'structured')
+      ).rejects.toMatchObject({ code: 'agent_not_available' })
+    }
+  )
+
+  it.each([false, true])(
+    'matches structured launch resolution for quoted paths (executable exists: %s)',
+    async (exists) => {
+      const root = mkdtempSync(join(tmpdir(), 'orca-worker-structured-command-'))
+      temporaryRoots.push(root)
+      const executable = join(root, process.platform === 'win32' ? 'my agent.cmd' : 'my agent')
+      if (exists) {
+        writeFileSync(executable, '#!/bin/sh\nexit 0\n')
+        chmodSync(executable, 0o755)
+      }
+      const settings = { agentCmdOverrides: { codex: `"${executable}"` } }
+      const runtime = createRuntime(settings)
+      detectInstalledAgents.mockResolvedValue(['codex'])
+      const validation = runtime.validateOrchestrationAgentLauncherForRepo(
+        'codex',
+        'repo-1',
+        'structured'
+      )
+      await (exists
+        ? expect(validation).resolves.toBeUndefined()
+        : expect(validation).rejects.toMatchObject({ code: 'agent_not_available' }))
+      if (exists) {
+        expect(resolveStructuredAgentCommand('codex', settings)).toBe(executable)
+      }
     }
   )
 

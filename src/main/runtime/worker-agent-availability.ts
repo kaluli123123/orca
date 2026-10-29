@@ -20,6 +20,10 @@ import { resolveLocalProjectRuntimeForRepo } from '../project-runtime-git-option
 import { agentLaunchPlatformForScope } from './agent-launch-scope-runtime'
 import { isTuiAgentEnabled } from '../../shared/tui-agent-selection'
 import { getRepoSshConnectionId } from '../../shared/execution-host'
+import type { AgentLaunchMode } from '../../shared/agent-launch-intent'
+import { hasExplicitTuiLaunchCommand } from '../../shared/tui-agent-launch-command-override'
+import { resolveStructuredAgentCommand } from '../native-chat/structured-agent-command-resolution'
+import { isAgentSessionPreSpawnError } from '../native-chat/agent-session-wire/structured-agent-session-adapter'
 
 export function validateWorkerAgentEnabled(
   agent: TuiAgent,
@@ -40,13 +44,15 @@ export async function validateWorkerAgentForRepo(
   runtime: Pick<OrcaRuntimeService, 'showRepo' | 'validateOrchestrationAgentLauncher'>,
   store: RuntimeStore,
   agent: TuiAgent,
-  repoSelector: string
+  repoSelector: string,
+  mode: AgentLaunchMode = 'terminal'
 ): Promise<void> {
   runtime.validateOrchestrationAgentLauncher(agent)
   const repo = await runtime.showRepo(repoSelector)
   const connectionId = getRepoSshConnectionId(repo)
   await validateWorkerAgentAvailability({
     agent,
+    mode,
     settings: store.getSettings(),
     repo,
     projectRuntime: connectionId ? undefined : resolveLocalProjectRuntimeForRepo(store, repo),
@@ -62,6 +68,7 @@ export async function validateWorkerAgentForRepo(
 
 export async function validateWorkerAgentAvailability(args: {
   agent: TuiAgent
+  mode?: AgentLaunchMode
   settings: Partial<Pick<GlobalSettings, 'agentCmdOverrides' | 'agentDefaultEnv'>>
   repo: Repo
   projectRuntime: ProjectExecutionRuntimeResolution | undefined
@@ -79,6 +86,25 @@ export async function validateWorkerAgentAvailability(args: {
       { projectRuntime },
       { failOnProbeError: true }
     )
+    if (
+      args.mode === 'structured' &&
+      hasExplicitTuiLaunchCommand(settings, agent) &&
+      projectRuntime?.status !== 'repair-required' &&
+      localRuntimeKind !== 'wsl'
+    ) {
+      try {
+        resolveStructuredAgentCommand(agent, settings, { platform })
+      } catch (error) {
+        if (!isAgentSessionPreSpawnError(error)) {
+          throw error
+        }
+        throw new OrchestrationError(
+          'agent_not_available',
+          `Agent launcher ${agent} Command setting is not a runnable program on the execution host.`
+        )
+      }
+      return
+    }
     const override = extractExecutableToken(settings.agentCmdOverrides?.[agent])
     if (override) {
       detected = []

@@ -52,6 +52,8 @@ The repository's execution-host identity determines where the check belongs, eve
 
 A configured `agentCmdOverrides` executable must be present on that same execution host even when the default CLI is installed. A missing override returns `agent_not_available` before creating a dispatch, worktree, or terminal; neither default detection nor the Claude Teams fallback can satisfy that override.
 
+Structured workers validate the complete Command setting with the structured launcher's executable resolver before persisting a dispatch. Use a single executable (quote paths containing spaces); put flags in Arguments. Shell command lines such as `wrapper --flag` or `npx codex` are not structured executables. Terminal workers retain their shell-command overrides, including on WSL.
+
 Background agent inventory can skip disabled agents, but worker-start validation still uses strict execution-host probes: filtering inventory does not turn a failed WSL probe into a missing-agent verdict.
 
 Wait for completions (process every message in a Delivery, then ack):

@@ -119,7 +119,6 @@ export async function startLocalWorker(args: {
     : requestedWorktree === 'current'
       ? await runtime.showManagedTerminalWorkspace(`id:${coordinatorWorktreeId}`)
       : await runtime.showManagedTerminalWorkspace(requestedWorktree)
-  await validateWorkerAgent(runtime, agent, creationTarget, resolvedWorktree)
   if (terminal) {
     await assertExplicitWorkerUsable({
       runtime,
@@ -132,6 +131,7 @@ export async function startLocalWorker(args: {
   }
   const hostMode = resolveWorkerStartModeOnHost(runtime, args.mode, resolvedWorktree?.id, agent)
   let mode = chatWorkerMode(await hostMode, chat)
+  await validateWorkerAgent(runtime, agent, creationTarget, resolvedWorktree, mode.mode)
 
   const startOptions = {
     worktree: requestedWorktree,

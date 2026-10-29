@@ -232,9 +232,10 @@ export abstract class OrcaRuntimeWithGetTerminalInteractiveWait extends OrcaRunt
 
   async validateOrchestrationAgentLauncherForRepo(
     agent: TuiAgent,
-    repoSelector: string
+    repoSelector: string,
+    mode?: Parameters<typeof validateWorkerAgentForRepo>[4]
   ): Promise<void> {
-    await validateWorkerAgentForRepo(this, this.requireStore(), agent, repoSelector)
+    await validateWorkerAgentForRepo(this, this.requireStore(), agent, repoSelector, mode)
   }
 
   resolveOrchestrationAgentLauncher(
