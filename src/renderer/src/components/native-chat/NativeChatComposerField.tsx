@@ -32,6 +32,7 @@ import { useNativeChatComposerDraftUnsaved } from './use-native-chat-draft-unsav
 import { NativeChatAddressPreviews } from './NativeChatAddressPreviews'
 import type { NativeChatAddressPreviewsState } from './use-native-chat-address-previews'
 export type NativeChatComposerFieldProps = {
+  editSession?: { cancel: () => void }
   /** Own draft persistence and native-drop routing by this pane so drops cannot land in another composer. */
   draftScopeKey: string
   textareaRef: RefObject<NativeChatComposerInput | null>
@@ -120,6 +121,7 @@ function imeComposedSegment(base: string, settled: string): string {
 }
 
 export function NativeChatComposerField({
+  editSession,
   draftScopeKey,
   textareaRef,
   draft,
@@ -321,12 +323,14 @@ export function NativeChatComposerField({
                   : undefined
               }
               placeholder={
-                goalMode?.active
-                  ? translate(
-                      'components.native-chat.goal.placeholder',
-                      'Describe your goal, define measurable outcomes for best results'
-                    )
-                  : (unavailableHint ?? nativeChatComposerPlaceholder(hasPty, canSend, afterStop))
+                editSession
+                  ? translate('components.native-chat.queuedMessages.editMessage', 'Edit message')
+                  : goalMode?.active
+                    ? translate(
+                        'components.native-chat.goal.placeholder',
+                        'Describe your goal, define measurable outcomes for best results'
+                      )
+                    : (unavailableHint ?? nativeChatComposerPlaceholder(hasPty, canSend, afterStop))
               }
               // Let layout handle wrapping and touch targets; scroll after eight lines without JavaScript measurement.
               className={cn(
@@ -338,6 +342,7 @@ export function NativeChatComposerField({
             />
             <div className="flex flex-wrap items-center gap-2 pt-0.5">
               <NativeChatComposerActions
+                editSession={editSession}
                 attachDisabled={attachDisabled}
                 dictationDisabled={dictationDisabled}
                 sendDisabled={sendButtonDisabled}

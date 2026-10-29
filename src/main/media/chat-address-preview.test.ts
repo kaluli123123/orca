@@ -16,6 +16,7 @@ import {
 import { CHAT_PREVIEW_MAX_TEXT_BYTES } from './chat-address-preview-content'
 import type { ChatAddressPreviewResult } from '../../shared/chat-address-preview'
 import type { Store } from '../persistence'
+import { setTrustedBrowserRendererWebContentsId } from '../ipc/browser-renderer-trust'
 
 const { authorize, ipcHandle } = vi.hoisted(() => ({
   authorize: vi.fn(async (path: string) => path),
@@ -57,11 +58,15 @@ beforeEach(async () => {
   vi.clearAllMocks()
   directory = await realpath(await mkdtemp(join(tmpdir(), 'orca-address-preview-')))
   sender = owner(700)
+  vi.stubEnv('ELECTRON_RENDERER_URL', '')
+  setTrustedBrowserRendererWebContentsId(sender.sender.id)
   servers = []
 })
 
 afterEach(async () => {
   sender.sender.emit('destroyed')
+  setTrustedBrowserRendererWebContentsId(null)
+  vi.unstubAllEnvs()
   for (const server of servers) {
     server.closeAllConnections()
     const closed = once(server, 'close')
@@ -178,6 +183,27 @@ describe('desktop address preview resources', () => {
       )
     ).toMatchObject({ status: 'error' })
   })
+
+  it.each([null, 701])(
+    'refuses file-document IPC without the requesting renderer pinned (%s)',
+    async (trustedId) => {
+      setTrustedBrowserRendererWebContentsId(trustedId)
+      expect(
+        await previewChatAddress(
+          sender,
+          { id: 'unpinned', source: join(directory, 'photo.png') },
+          store
+        )
+      ).toMatchObject({ status: 'error', message: 'Untrusted address preview request' })
+      expect(authorize).not.toHaveBeenCalled()
+      registerChatAddressPreviewHandlers(store)
+      const release = ipcHandle.mock.calls.find(
+        ([channel]) => channel === 'fs:releaseAddressPreview'
+      )?.[1]
+      expect(release).toBeDefined()
+      expect(() => release(sender, { id: 'unpinned' })).toThrow('Untrusted address preview release')
+    }
+  )
 
   it('authorizes the real requesting owner and refuses navigation/script/origin consumers', async () => {
     const path = join(directory, 'photo.png')

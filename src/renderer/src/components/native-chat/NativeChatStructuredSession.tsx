@@ -71,6 +71,7 @@ import {
 export function NativeChatStructuredSession(
   props: Omit<NativeChatStructuredViewProps, 'mode'>
 ): React.JSX.Element {
+  const { tabId: terminalTabId, agent, isVisible } = props
   const ownerWorktreeId = useNativeChatTabOwnerWorktreeId(props.tabId)
   const fileLinkContext = useNativeChatFileLinkContext(props.tabId)
   const provisionalLaunch = useNativeChatProvisionalLaunch(ownerWorktreeId, props.sessionId)
@@ -206,7 +207,7 @@ export function NativeChatStructuredSession(
     composerReady: composerShown && install.slot.kind !== 'install'
   })
   const questionBody = prompt?.body.kind === 'question' ? prompt.body : null
-  const structuredTransport = useNativeChatStructuredComposerTransport({
+  const transport = useNativeChatStructuredComposerTransport({
     props,
     controller,
     sendThroughLaunch: provisionalLaunch.sendThroughLaunch,
@@ -219,7 +220,7 @@ export function NativeChatStructuredSession(
     onSubmitted: submits.revealLatest,
     sendBlockedReason: hostPermission.sendBlockedReason ?? install.sendBlockedReason
   })
-  const asyncQuestion = { paneKey, session, send: structuredTransport.send }
+  const asyncQuestion = { paneKey, session, send: transport.send }
   const continuation = useNativeChatInterruptedContinuation({
     ...controller,
     target: props.target,
@@ -228,7 +229,7 @@ export function NativeChatStructuredSession(
     isWorking: controller.isWorking || hostHeld,
     reportComposerError,
     focusComposer,
-    transport: structuredTransport
+    transport
   })
 
   const launch = { ...provisionalLaunch, retry: submits.retryLaunch }
@@ -284,7 +285,7 @@ export function NativeChatStructuredSession(
       style={appearanceStyle}
       data-native-chat-scheme={appearanceStyle.colorScheme}
     >
-      {nativeChatPaneHeader(props, ownerWorktreeId, appearanceStyle.colorScheme)}
+      {nativeChatPaneHeader(props, ownerWorktreeId, appearanceStyle.colorScheme, handOff)}
       <NativeChatContextClearFade clearing={controller.contextClear.clearing}>
         {find.isOpen ? <NativeChatFindBar find={find} isVisible={props.isVisible} /> : null}
         {viewState.kind === 'loading' || (viewState.kind === 'error' && !readFailure) ? (
@@ -339,7 +340,7 @@ export function NativeChatStructuredSession(
             statedFailures={startFailures}
             steerHeld={stopControls.stopping || hostHeld}
             focusComposer={focusComposer}
-            editAttachTo={{ terminalTabId: props.tabId, transport: structuredTransport }}
+            editAttachTo={{ terminalTabId, agent, isVisible, transport }}
           />
           <NativeChatStructuredSessionStatus
             sessionId={props.sessionId}
@@ -352,7 +353,7 @@ export function NativeChatStructuredSession(
             <NativeChatStructuredGoalStrip
               sessionId={props.sessionId}
               threadGoal={controller.threadGoal}
-              transport={structuredTransport}
+              transport={transport}
               isWorking={controller.isWorking}
               isVisible={props.isVisible}
               turnId={controller.turnId}
@@ -398,7 +399,7 @@ export function NativeChatStructuredSession(
               {...stopControls.composer}
               unavailableHint={install.unavailableHint}
               steerQueued={stopControls.stopping ? undefined : submits.queuedMessages.steerNewest}
-              structuredTransport={structuredTransport}
+              structuredTransport={transport}
               launchSeed={{ ...launchDraftSignal, ownsTabWideLaunchDraft: true }}
               notices={notices}
               recallSource={{ messages: session.messages, withoutImageMarkers: true }}
