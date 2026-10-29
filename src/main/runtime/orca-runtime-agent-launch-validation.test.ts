@@ -1,6 +1,9 @@
+import { chmodSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { OrcaRuntimeService } from './orca-runtime'
-import type * as ManagedAgentHookTargets from '../../shared/managed-agent-hook-targets'
+import type * as LocalAgentCliPresence from '../agent-hooks/local-agent-cli-presence'
 
 const {
   detectInstalledAgents,
@@ -13,7 +16,7 @@ const {
   detectInstalledAgents: vi.fn<(...args: never[]) => Promise<string[]>>(),
   detectWslCommandsOnPath: vi.fn<(...args: never[]) => Promise<Set<string>>>(),
   detectLocalManagedAgentCliPresence:
-    vi.fn<(...args: never[]) => Promise<Record<string, unknown>>>(),
+    vi.fn<typeof LocalAgentCliPresence.detectLocalManagedAgentCliPresence>(),
   resolveLocalProjectRuntimeForRepo: vi.fn(),
   isCommandOnLocalPath: vi.fn(),
   agentLaunchPlatformForScope: vi.fn(() => process.platform)
@@ -27,10 +30,6 @@ vi.mock('../agent-hooks/local-agent-cli-presence', () => ({ detectLocalManagedAg
 vi.mock('../project-runtime-git-options', () => ({ resolveLocalProjectRuntimeForRepo }))
 vi.mock('../ipc/command-path-resolver', () => ({ isCommandOnLocalPath }))
 vi.mock('./agent-launch-scope-runtime', () => ({ agentLaunchPlatformForScope }))
-vi.mock('../../shared/managed-agent-hook-targets', async (importOriginal) => ({
-  ...(await importOriginal<typeof ManagedAgentHookTargets>()),
-  getManagedAgentHookTarget: () => null
-}))
 
 const repo = (connectionId?: string) => ({
   id: 'repo-1',
@@ -41,6 +40,8 @@ const repo = (connectionId?: string) => ({
   ...(connectionId ? { connectionId } : {})
 })
 
+const temporaryRoots: string[] = []
+
 function createRuntime(settings: Record<string, unknown> = {}) {
   const runtime = new OrcaRuntimeService()
   Object.assign(runtime, { store: { getSettings: () => ({ agentCmdOverrides: {}, ...settings }) } })
@@ -49,6 +50,9 @@ function createRuntime(settings: Record<string, unknown> = {}) {
 }
 
 afterEach(() => {
+  for (const root of temporaryRoots.splice(0)) {
+    rmSync(root, { recursive: true, force: true })
+  }
   vi.clearAllMocks()
   resolveLocalProjectRuntimeForRepo.mockReturnValue(undefined)
   detectInstalledAgents.mockResolvedValue([])
@@ -118,14 +122,107 @@ describe('validateOrchestrationAgentLauncherForRepo', () => {
       const runtime = createRuntime({ agentCmdOverrides: { [agent]: 'managed-agent' } })
       detectInstalledAgents.mockResolvedValue([])
       isCommandOnLocalPath.mockResolvedValue(true)
+      detectLocalManagedAgentCliPresence.mockResolvedValue({
+        amp: { state: 'found', executablePath: '/managed/managed-agent' }
+      })
 
       await runtime.validateOrchestrationAgentLauncherForRepo(agent, 'repo-1')
-      expect(isCommandOnLocalPath).toHaveBeenCalledWith(
-        'managed-agent',
-        expect.objectContaining({ env: expect.objectContaining({ PATH: expect.any(String) }) })
+      if (agent === 'amp') {
+        expect(detectLocalManagedAgentCliPresence).toHaveBeenCalledWith(
+          expect.any(Array),
+          expect.any(Object),
+          { pathEnv: expect.any(String) }
+        )
+      } else {
+        expect(isCommandOnLocalPath).toHaveBeenCalledWith(
+          'managed-agent',
+          expect.objectContaining({ env: expect.objectContaining({ PATH: expect.any(String) }) })
+        )
+      }
+    }
+  )
+
+  it.each([false, true])(
+    'validates the configured native executable despite an installed default (override found: %s)',
+    async (overrideFound) => {
+      const root = mkdtempSync(join(tmpdir(), 'orca-worker-override-'))
+      temporaryRoots.push(root)
+      const executable = join(root, process.platform === 'win32' ? 'codex.cmd' : 'codex')
+      writeFileSync(executable, '#!/bin/sh\nexit 0\n')
+      chmodSync(executable, 0o755)
+      const runtime = createRuntime({
+        agentCmdOverrides: { codex: `${overrideFound ? 'codex' : 'missing-codex'} --profile work` },
+        agentDefaultEnv: { codex: { PATH: root } }
+      })
+      detectInstalledAgents.mockResolvedValue(['codex'])
+      const actual = await vi.importActual<typeof LocalAgentCliPresence>(
+        '../agent-hooks/local-agent-cli-presence'
+      )
+      detectLocalManagedAgentCliPresence.mockImplementation(
+        actual.detectLocalManagedAgentCliPresence
+      )
+
+      const validation = runtime.validateOrchestrationAgentLauncherForRepo('codex', 'repo-1')
+      await (overrideFound
+        ? expect(validation).resolves.toBeUndefined()
+        : expect(validation).rejects.toMatchObject({ code: 'agent_not_available' }))
+    }
+  )
+
+  it.each([false, true])(
+    'validates the configured WSL executable despite an installed default (override found: %s)',
+    async (overrideFound) => {
+      const runtime = createRuntime({ agentCmdOverrides: { codex: '~/bin/custom-codex' } })
+      resolveLocalProjectRuntimeForRepo.mockReturnValue({
+        status: 'resolved',
+        runtime: { kind: 'wsl', distro: 'Ubuntu' }
+      })
+      detectInstalledAgents.mockResolvedValue(['codex'])
+      detectWslCommandsOnPath.mockResolvedValue(
+        new Set(overrideFound ? ['~/bin/custom-codex'] : [])
+      )
+
+      const validation = runtime.validateOrchestrationAgentLauncherForRepo('codex', 'repo-1')
+      await (overrideFound
+        ? expect(validation).resolves.toBeUndefined()
+        : expect(validation).rejects.toMatchObject({ code: 'agent_not_available' }))
+      expect(detectWslCommandsOnPath).toHaveBeenCalledWith(
+        { distro: 'Ubuntu' },
+        ['~/bin/custom-codex'],
+        { failOnProbeError: true }
       )
     }
   )
+
+  it('does not hide an unavailable WSL override probe behind an installed default', async () => {
+    const runtime = createRuntime({ agentCmdOverrides: { codex: '~/bin/custom-codex' } })
+    resolveLocalProjectRuntimeForRepo.mockReturnValue({
+      status: 'resolved',
+      runtime: { kind: 'wsl', distro: 'Ubuntu' }
+    })
+    detectInstalledAgents.mockResolvedValue(['codex'])
+    const error = Object.assign(new Error('WSL unavailable'), {
+      code: 'remote_runtime_unavailable'
+    })
+    detectWslCommandsOnPath.mockRejectedValueOnce(error)
+
+    await expect(runtime.validateOrchestrationAgentLauncherForRepo('codex', 'repo-1')).rejects.toBe(
+      error
+    )
+  })
+
+  it('does not use the Claude Teams fallback for a missing configured executable', async () => {
+    const runtime = createRuntime({
+      agentCmdOverrides: { 'claude-agent-teams': 'missing-claude --teams' }
+    })
+    agentLaunchPlatformForScope.mockReturnValue('win32')
+    detectInstalledAgents.mockResolvedValue(['claude'])
+    isCommandOnLocalPath.mockResolvedValue(false)
+
+    await expect(
+      runtime.validateOrchestrationAgentLauncherForRepo('claude-agent-teams', 'repo-1')
+    ).rejects.toMatchObject({ code: 'agent_not_available' })
+  })
 
   it('probes a WSL override strictly and accepts it when found', async () => {
     const runtime = createRuntime({ agentCmdOverrides: { codex: '~/bin/codex' } })

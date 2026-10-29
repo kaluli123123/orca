@@ -80,8 +80,10 @@ export async function validateWorkerAgentAvailability(args: {
       { failOnProbeError: true }
     )
     const override = extractExecutableToken(settings.agentCmdOverrides?.[agent])
+    if (override) {
+      detected = []
+    }
     if (
-      !detected.includes(agent) &&
       override &&
       projectRuntime?.status === 'resolved' &&
       projectRuntime.runtime.kind === 'wsl'
@@ -95,12 +97,7 @@ export async function validateWorkerAgentAvailability(args: {
         return
       }
     }
-    if (
-      !detected.includes(agent) &&
-      override &&
-      projectRuntime?.status !== 'repair-required' &&
-      localRuntimeKind !== 'wsl'
-    ) {
+    if (override && projectRuntime?.status !== 'repair-required' && localRuntimeKind !== 'wsl') {
       const env = {
         ...(buildLocalPreflightEnv() ?? process.env),
         ...settings.agentDefaultEnv?.[agent]
@@ -108,7 +105,11 @@ export async function validateWorkerAgentAvailability(args: {
       const pathEnv = Object.entries(env).find(([key]) => key.toLowerCase() === 'path')?.[1]
       const target = isManagedAgentHookTarget(agent) ? getManagedAgentHookTarget(agent) : undefined
       if (target) {
-        const presence = await detectLocalManagedAgentCliPresence([target], settings, { pathEnv })
+        const presence = await detectLocalManagedAgentCliPresence(
+          [{ ...target, executableCandidates: [override] }],
+          settings,
+          { pathEnv }
+        )
         if (presence[agent]?.state === 'found') {
           return
         }

@@ -50,6 +50,8 @@ Worker starts check launcher availability on the execution host before creating 
 
 The repository's execution-host identity determines where the check belongs, even when no legacy SSH connection field is stored. New worktrees check the selected destination repository before creating the worktree.
 
+A configured `agentCmdOverrides` executable must be present on that same execution host even when the default CLI is installed. A missing override returns `agent_not_available` before creating a dispatch, worktree, or terminal; neither default detection nor the Claude Teams fallback can satisfy that override.
+
 Background agent inventory can skip disabled agents, but worker-start validation still uses strict execution-host probes: filtering inventory does not turn a failed WSL probe into a missing-agent verdict.
 
 Wait for completions (process every message in a Delivery, then ack):
