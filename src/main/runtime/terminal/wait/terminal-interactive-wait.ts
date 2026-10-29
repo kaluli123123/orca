@@ -159,7 +159,7 @@ export abstract class OrcaRuntimeWithGetTerminalInteractiveWait extends OrcaRunt
       return null
     }
     try {
-      const resolved = await this.resolveWorktreeSelector(`id:${worktreeId}`)
+      const resolved = await this.resolveWorkspaceSelector(`id:${worktreeId}`)
       return {
         worktreeId: resolved.id,
         path: resolved.git.path,
