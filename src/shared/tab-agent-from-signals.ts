@@ -121,8 +121,8 @@ export function resolveTabAgentFromSignals(args: {
     priorIdentity !== null &&
     explicitTitleAgent !== null &&
     explicitTitleAgent !== priorIdentity &&
-    !shareCompatibleTitleIdentityGroup(rawTitleAgent, priorIdentity) &&
     titleClaimsIdentity &&
+    !shareCompatibleTitleIdentityGroup(rawTitleAgent, priorIdentity) &&
     (args.hasObservedAgentSignal || hasCompletedHook || nativeOpenCodeTitle)
   // Why: native OpenCode titles lack a provider generation and cannot displace durable ownership.
   const titleAgent =
