@@ -11,7 +11,9 @@ vi.mock('./runner', () => ({
 import { getLocalBaseRefDriftWarningForWorktreeCreate } from './worktree-base-drift-warning'
 
 describe('getLocalBaseRefDriftWarningForWorktreeCreate', () => {
-  beforeEach(() => gitExecFileAsyncMock.mockReset())
+  beforeEach(() => {
+    gitExecFileAsyncMock.mockReset()
+  })
 
   const mockLocalRefAndCount = (count: string): void => {
     gitExecFileAsyncMock.mockImplementation(async (args: string[] | undefined) =>
@@ -35,6 +37,42 @@ describe('getLocalBaseRefDriftWarningForWorktreeCreate', () => {
       behind: 692,
       relation: 'behind'
     })
+  })
+
+  it.each([undefined, 250])('bounds every advisory Git probe with timeout %s', async (timeout) => {
+    mockLocalRefAndCount('0\t1\n')
+
+    await getLocalBaseRefDriftWarningForWorktreeCreate('/repo', 'work/stale', 'origin/main', {
+      wslDistro: 'Ubuntu',
+      admissionTier: 'interactive',
+      timeout
+    })
+
+    expect(gitExecFileAsyncMock).toHaveBeenCalledTimes(3)
+    for (const [, options] of gitExecFileAsyncMock.mock.calls) {
+      expect(options).toMatchObject({
+        cwd: '/repo',
+        wslDistro: 'Ubuntu',
+        admissionTier: 'interactive',
+        timeout: timeout ?? 10_000
+      })
+    }
+  })
+
+  it('keeps a failed preliminary ref probe advisory-only', async () => {
+    gitExecFileAsyncMock.mockRejectedValue(new Error('Git read timed out'))
+
+    const warning = await getLocalBaseRefDriftWarningForWorktreeCreate(
+      '/repo',
+      'work/stale',
+      'origin/main'
+    )
+    expect(warning).toBeUndefined()
+
+    expect(gitExecFileAsyncMock.mock.calls.map(([args]) => args[0])).toEqual([
+      'rev-parse',
+      'rev-parse'
+    ])
   })
 
   it('reports a diverged local base', async () => {

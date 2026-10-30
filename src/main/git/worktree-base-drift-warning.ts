@@ -42,16 +42,17 @@ export async function getLocalBaseRefDriftWarningForWorktreeCreate(
     return undefined
   }
   try {
-    const qualifiedBaseRef = await resolveLocalWorktreeBaseRef(repoPath, baseRef, options)
+    const probeOptions = {
+      ...options,
+      timeout: options.timeout ?? LOCAL_BASE_REF_DRIFT_PROBE_TIMEOUT_MS
+    }
+    const qualifiedBaseRef = await resolveLocalWorktreeBaseRef(repoPath, baseRef, probeOptions)
     if (!qualifiedBaseRef.startsWith('refs/heads/')) {
       return undefined
     }
     const { stdout } = await gitExecFileAsync(
       ['rev-list', '--left-right', '--count', `${qualifiedBaseRef}...${defaultBaseRef}`],
-      gitExecOptions(repoPath, {
-        ...options,
-        timeout: options.timeout ?? LOCAL_BASE_REF_DRIFT_PROBE_TIMEOUT_MS
-      })
+      gitExecOptions(repoPath, probeOptions)
     )
     const drift = parseRevListDrift(stdout)
     if (!drift || drift.behind === 0) {
