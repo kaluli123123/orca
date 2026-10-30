@@ -113,7 +113,7 @@ export function useTabAgent(tab: TerminalTab): TerminalAgent | null {
       hasObservedAgentSignalRef.current = false
       setHasObservedAgentSignal(false)
     }
-    // Ref-gate title frames so repeated evidence cannot dispatch redundant tab updates.
+    // Ref-gate already-observed signals: title frames rerun this effect, and redundant dispatches add SortableTab commits implicated in #185 (react-update-depth-attribution.ts).
     if (
       !hasObservedAgentSignalRef.current &&
       hasObservedTabAgentSignal({

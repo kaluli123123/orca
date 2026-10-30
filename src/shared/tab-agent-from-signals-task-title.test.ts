@@ -19,6 +19,17 @@ describe('tab agent task-title identity', () => {
     ).toBe(true)
   })
 
+  it.each([
+    ['◇ Qoder CLI CN', 'qoder-cn'],
+    ['tmux | Grok', 'grok'],
+    [`${'x | '.repeat(9)}OC | Current task`, 'opencode']
+  ] as const)(
+    'observes canonical native identity %s for launch exit clearing',
+    (title, launchAgent) => {
+      expect(hasObservedTabAgentSignal({ title, launchAgent, hasCompletedHook: false })).toBe(true)
+    }
+  )
+
   it('keeps a Claude-owned pane Claude when its task title mentions another agent', () => {
     for (const title of [
       '⠋ Fix the codex plugin launcher',

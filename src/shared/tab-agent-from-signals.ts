@@ -1,7 +1,5 @@
 import { titleShowsNoAgent } from './agent-detection'
 import { resolveExplicitTerminalTitleAgentType } from './terminal-title-agent-type'
-import { titlePresentsAgent } from './terminal-title-identity-claim'
-import { isTuiAgent } from './tui-agent-config'
 import {
   resolveCompatibleAgentTypeForOwner,
   shareCompatibleTitleIdentityGroup
@@ -111,17 +109,12 @@ export function resolveTabAgentFromSignals(args: {
   const explicitTitleAgent = resolveSignalAgentForLaunchOwner(rawTitleAgent, owner, ownerIsLaunch)
   const priorIdentity = idleFocusedIdentity ?? launchAgent
   const nativeOpenCodeTitle = explicitTitleAgent === 'opencode' && isOpenCodeNativeTitle(args.title)
-  // Task-text mentions cannot claim another agent's pane (#8940, #14937).
-  const titleClaimsIdentity =
-    rawTitleAgent !== null &&
-    (!isTuiAgent(rawTitleAgent) || titlePresentsAgent(args.title, rawTitleAgent))
   // Why: native OpenCode titles can reclaim stale launch intent before any observed hook signal.
   // Raw title group, not the fallback-rewritten agent: inferred Pi owners would otherwise treat an OMP wrapper title as a different identity.
   const titleReclaimsReusedPane =
     priorIdentity !== null &&
     explicitTitleAgent !== null &&
     explicitTitleAgent !== priorIdentity &&
-    titleClaimsIdentity &&
     !shareCompatibleTitleIdentityGroup(rawTitleAgent, priorIdentity) &&
     (args.hasObservedAgentSignal || hasCompletedHook || nativeOpenCodeTitle)
   // Why: native OpenCode titles lack a provider generation and cannot displace durable ownership.
@@ -173,7 +166,7 @@ export function hasObservedTabAgentSignal(args: {
 }): boolean {
   const explicitTitleAgent = resolveExplicitTerminalTitleAgentType(args.title)
   const fallbackAgentSignal = args.launchAgent
-    ? explicitTitleAgent === args.launchAgent && titlePresentsAgent(args.title, args.launchAgent)
+    ? explicitTitleAgent === args.launchAgent
     : Boolean(explicitTitleAgent || args.siblingHookAgent)
   return Boolean(
     args.hookAgent || args.hasCompletedHook || args.processAgent || fallbackAgentSignal
